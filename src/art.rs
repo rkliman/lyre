@@ -57,8 +57,25 @@ pub fn extract_cover_bytes(path: &str) -> Option<Vec<u8>> {
     Some(pic.data().to_vec())
 }
 
-/// Decode raw image bytes, resize to `char_w × char_h` character cells,
-/// and convert to block-art Lines.
+/// Extract cover art from `path` and write it to a temp file.
+/// Returns a `file://` URI suitable for `mpris:artUrl`, or `None` if
+/// the track has no embedded art.
+pub fn extract_cover_to_temp_file(track_path: &str) -> Option<String> {
+    let bytes = extract_cover_bytes(track_path)?;
+
+    // Detect format from magic bytes to pick the right extension
+    let ext = if bytes.starts_with(b"\xff\xd8\xff") {
+        "jpg"
+    } else if bytes.starts_with(b"\x89PNG") {
+        "png"
+    } else {
+        "jpg" // safe fallback
+    };
+
+    let tmp_path = format!("/tmp/lyre-cover.{}", ext);
+    std::fs::write(&tmp_path, &bytes).ok()?;
+    Some(format!("file://{}", tmp_path))
+}
 pub fn render_block_art(bytes: &[u8], char_w: u16, char_h: u16) -> Option<BlockArt> {
     let img = image::load_from_memory(bytes).ok()?;
     Some(image_to_block_art(&img, char_w, char_h))

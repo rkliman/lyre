@@ -65,6 +65,8 @@ pub struct App {
     pub status_message: Option<String>,
     pub album_art: Option<crate::art::BlockArt>,
     pub album_art_path: Option<String>,
+    // Cached file:// URI for MPRIS (avoids re-extracting on every tick)
+    pub mpris_art_url: Option<String>,
     pub overlay: Overlay,
     pub show_help: bool,
 }
@@ -102,6 +104,7 @@ impl App {
             search_mode: false, search_query: String::new(),
             player, status_message: None,
             album_art: None, album_art_path: None,
+            mpris_art_url: None,
             overlay: Overlay::None,
             show_help: false,
         };
@@ -284,6 +287,7 @@ impl App {
                 self.queue_index = 0;
                 self.album_art = None;
                 self.album_art_path = None;
+                self.mpris_art_url = None;
             }
             KeyCode::Left | KeyCode::Char('h') => { self.active_panel = Panel::TrackList; }
             _ => {}
@@ -521,10 +525,17 @@ impl App {
 
     pub fn refresh_album_art(&mut self, char_w: u16, char_h: u16) {
         let path = match self.player.current_track.as_ref().map(|t| t.path.clone()) {
-            Some(p) => p, None => { self.album_art = None; self.album_art_path = None; return; }
+            Some(p) => p,
+            None => {
+                self.album_art = None;
+                self.album_art_path = None;
+                self.mpris_art_url = None;
+                return;
+            }
         };
         if self.album_art_path.as_deref() == Some(&path) { return; }
         self.album_art_path = Some(path.clone());
+        self.mpris_art_url = None; // will be lazily re-extracted by main.rs
         self.album_art = crate::art::extract_cover_bytes(&path)
             .and_then(|bytes| crate::art::render_block_art(&bytes, char_w, char_h));
     }

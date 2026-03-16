@@ -22,3 +22,4 @@ anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 lofty = "0.22"
 walkdir = "2"
+zbus = { version = "4", default-features = false, features = ["tokio"] }
