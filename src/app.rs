@@ -44,6 +44,12 @@ pub struct App {
     pub all_tracks: Vec<Track>,
     pub filtered_tracks: Vec<Track>,
     pub track_context: TrackContext,
+    // Pre-computed display lines per track.
+    // Each entry is (collapsed_line, expanded_lines).
+    // collapsed_line: single row with … truncation for non-selected display.
+    // expanded_lines: full word-wrapped rows shown when the track is selected.
+    pub wrapped_tracks: Vec<(String, Vec<String>)>,
+    pub wrapped_width: usize,
     pub sidebar_artists: Vec<String>,
     pub sidebar_albums: Vec<String>,
     pub sidebar_genres: Vec<String>,
@@ -94,6 +100,8 @@ impl App {
         let mut app = Self {
             all_tracks, filtered_tracks,
             track_context: TrackContext::Library,
+            wrapped_tracks: Vec::new(),
+            wrapped_width: 0,
             sidebar_artists: artists, sidebar_albums: albums, sidebar_genres: genres,
             sidebar_items: Vec::new(), sidebar_index: 0, sidebar_expanded,
             playlists, music_dir,
@@ -374,6 +382,7 @@ impl App {
         self.track_list_index = 0;
         self.track_list_offset = 0;
         if self.track_context == TrackContext::Library { self.apply_sort(); }
+        self.invalidate_wrap_cache();
     }
 
     fn load_playlist_tracks(&self, name: &str) -> Vec<Track> {
@@ -422,6 +431,7 @@ impl App {
         if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) { pl.remove_entry(index); let _ = pl.save(); }
         self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         if self.track_list_index >= self.filtered_tracks.len() && self.track_list_index > 0 { self.track_list_index -= 1; }
+        self.invalidate_wrap_cache();
     }
 
     fn playlist_move_track_up(&mut self, index: usize) {
@@ -429,6 +439,7 @@ impl App {
         if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) { pl.move_entry_up(index); let _ = pl.save(); }
         self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         if index > 0 { self.track_list_index -= 1; }
+        self.invalidate_wrap_cache();
     }
 
     fn playlist_move_track_down(&mut self, index: usize) {
@@ -436,6 +447,7 @@ impl App {
         if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) { pl.move_entry_down(index); let _ = pl.save(); }
         self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         if index + 1 < self.filtered_tracks.len() { self.track_list_index += 1; }
+        self.invalidate_wrap_cache();
     }
 
     fn apply_fuzzy_search(&mut self) {
@@ -450,6 +462,7 @@ impl App {
         scored.sort_by(|a, b| b.0.cmp(&a.0));
         self.filtered_tracks = scored.into_iter().map(|(_, t)| t).collect();
         self.track_list_index = 0;
+        self.invalidate_wrap_cache();
     }
 
     pub fn apply_sort(&mut self) {
@@ -463,6 +476,7 @@ impl App {
             SortField::Genre    => self.filtered_tracks.sort_by(|a, b| { let c = a.genre.to_lowercase().cmp(&b.genre.to_lowercase()); if asc { c } else { c.reverse() } }),
             SortField::Duration => self.filtered_tracks.sort_by(|a, b| { let c = a.duration.cmp(&b.duration); if asc { c } else { c.reverse() } }),
         }
+        self.invalidate_wrap_cache();
     }
 
     fn cycle_sort(&mut self) {
@@ -523,6 +537,65 @@ impl App {
 
     pub fn set_status(&mut self, msg: String) { self.status_message = Some(msg); }
 
+    /// Call this after any change to filtered_tracks so the wrap cache is rebuilt.
+    pub fn invalidate_wrap_cache(&mut self) {
+        self.wrapped_width = 0; // force rebuild on next render
+    }
+
+    /// Rebuild the wrap cache for the given total panel width.
+    /// Called from ui.rs when the width changes or cache is invalid.
+    pub fn rebuild_wrapped_tracks(&mut self, panel_w: usize) {
+        let title_w1  = (panel_w * 28 / 100).saturating_sub(2);
+        let artist_w  = panel_w * 22 / 100;
+        let album_w   = panel_w * 22 / 100;
+        let genre_w   = panel_w * 16 / 100;
+
+        self.wrapped_tracks = self.filtered_tracks.iter().map(|track| {
+            let title  = track.display_title();
+            let artist = track.display_artist();
+            let album  = track.display_album();
+            let genre  = track.genre.split(',').next().unwrap_or("").trim();
+            let dur    = track.duration_str();
+
+            // ── Collapsed: truncate each field with … if it overflows ─────────
+            let t0 = truncate_field(title,  title_w1);
+            let a0 = truncate_field(artist, artist_w);
+            let b0 = truncate_field(album,  album_w);
+            let g0 = truncate_field(genre,  genre_w);
+            let collapsed = format!("  {}  {}  {}  {}  {:>4}", t0, a0, b0, g0, dur);
+
+            // ── Expanded: word-wrap each field across as many rows as needed ──
+            let tc = wrap_field(title,  title_w1);
+            let ac = wrap_field(artist, artist_w);
+            let bc = wrap_field(album,  album_w);
+            let gc = wrap_field(genre,  genre_w);
+
+            let n = [tc.len(), ac.len(), bc.len(), gc.len()]
+                .into_iter().max().unwrap_or(1).max(1);
+
+            let empty_t = " ".repeat(title_w1);
+            let empty_a = " ".repeat(artist_w);
+            let empty_b = " ".repeat(album_w);
+            let empty_g = " ".repeat(genre_w);
+
+            let expanded = (0..n).map(|row| {
+                let t = tc.get(row).map(|s| pad_to(s, title_w1)).unwrap_or_else(|| empty_t.clone());
+                let a = ac.get(row).map(|s| pad_to(s, artist_w)).unwrap_or_else(|| empty_a.clone());
+                let b = bc.get(row).map(|s| pad_to(s, album_w) ).unwrap_or_else(|| empty_b.clone());
+                let g = gc.get(row).map(|s| pad_to(s, genre_w) ).unwrap_or_else(|| empty_g.clone());
+                if row == 0 {
+                    format!("  {}  {}  {}  {}  {:>4}", t, a, b, g, dur)
+                } else {
+                    format!("  {}  {}  {}  {}", t, a, b, g)
+                }
+            }).collect();
+
+            (collapsed, expanded)
+        }).collect();
+
+        self.wrapped_width = panel_w;
+    }
+
     pub fn refresh_album_art(&mut self, char_w: u16, char_h: u16) {
         let path = match self.player.current_track.as_ref().map(|t| t.path.clone()) {
             Some(p) => p,
@@ -539,4 +612,97 @@ impl App {
         self.album_art = crate::art::extract_cover_bytes(&path)
             .and_then(|bytes| crate::art::render_block_art(&bytes, char_w, char_h));
     }
+}
+
+/// Split `s` into lines where each line's display width ≤ `max` columns.
+/// Breaks on whitespace where possible; falls back to character-breaking
+/// only when a single word is wider than `max`.
+fn wrap_field(s: &str, max: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthChar;
+    use unicode_width::UnicodeWidthStr;
+    if max == 0 || s.is_empty() { return vec![String::new()]; }
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_w = 0usize;
+
+    for word in s.split_whitespace() {
+        let word_w = word.width();
+
+        // If adding this word (plus a space if current is non-empty) fits, append it
+        let sep_w = if current.is_empty() { 0 } else { 1 };
+        if current_w + sep_w + word_w <= max {
+            if !current.is_empty() { current.push(' '); current_w += 1; }
+            current.push_str(word);
+            current_w += word_w;
+        } else if word_w > max {
+            // Word is wider than the column — flush current line then
+            // character-break the word itself across as many lines as needed
+            if !current.is_empty() {
+                lines.push(current.clone());
+                current.clear();
+                current_w = 0;
+            }
+            let mut char_buf = String::new();
+            let mut char_w = 0usize;
+            for ch in word.chars() {
+                let cw = ch.width().unwrap_or(1);
+                if char_w + cw > max {
+                    lines.push(char_buf.clone());
+                    char_buf.clear();
+                    char_w = 0;
+                }
+                char_buf.push(ch);
+                char_w += cw;
+            }
+            // whatever's left becomes the new current line
+            current = char_buf;
+            current_w = char_w;
+        } else {
+            // Word fits on a new line — flush current and start fresh
+            if !current.is_empty() { lines.push(current.clone()); }
+            current = word.to_string();
+            current_w = word_w;
+        }
+    }
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// Pad `s` to exactly `width` display columns by appending spaces.
+/// Rust's `{:<width$}` uses char count, not display width — this fixes that.
+fn pad_to(s: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let display_w = s.width();
+    if display_w >= width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(width - display_w))
+    }
+}
+
+/// Truncate `s` to `max` display columns, appending `…` if it was cut.
+/// Pads with spaces to exactly `max` columns. Unicode-aware.
+fn truncate_field(s: &str, max: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    use unicode_width::UnicodeWidthStr;
+    if max == 0 { return String::new(); }
+    if s.width() <= max { return pad_to(s, max); }
+
+    // Build up to max-1 display cols, then add …
+    let mut result = String::new();
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = ch.width().unwrap_or(1);
+        if w + cw > max - 1 { break; }
+        result.push(ch);
+        w += cw;
+    }
+    result.push('…');
+    w += 1;
+    // Pad if the ellipsis itself left a gap (e.g. last char was 2-wide)
+    if w < max { result.push_str(&" ".repeat(max - w)); }
+    result
 }

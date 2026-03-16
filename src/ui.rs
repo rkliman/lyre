@@ -11,6 +11,7 @@ use ratatui::{
 use crate::app::App;
 use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
 use crate::types::format_duration;
+use unicode_width::UnicodeWidthStr;
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 const FG: Color = Color::Rgb(220, 215, 205);       // warm off-white
@@ -182,17 +183,17 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let box_border_color   = if search_active { ACCENT } else if has_query { ACCENT2 } else { DIM };
 
     let result_hint = if has_query {
-        format!(" ({} result{})", app.filtered_tracks.len(), if app.filtered_tracks.len() == 1 { "" } else { "s" })
+        format!("  {} result{}", app.filtered_tracks.len(), if app.filtered_tracks.len() == 1 { "" } else { "s" })
     } else {
         String::new()
     };
 
     let box_title = if search_active {
-        Span::styled(" search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
+        Span::styled(" 🔍 search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
     } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), Style::default().fg(ACCENT))
+        Span::styled(format!(" 🔍 search{} ", result_hint), Style::default().fg(ACCENT))
     } else {
-        Span::styled(" search ", Style::default().fg(DIM))
+        Span::styled(" 🔍 search ", Style::default().fg(DIM))
     };
 
     let search_block = Block::default()
@@ -237,7 +238,6 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let artist_w = w * 22 / 100;
     let album_w  = w * 22 / 100;
     let genre_w  = w * 16 / 100;
-    // duration takes the rest (~5 chars + separators)
 
     let header = format!(
         "{:<tw$}  {:<aw$}  {:<bw$}  {:<gw$}  {:>4}",
@@ -248,80 +248,117 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD).bg(HEADER_BG));
     f.render_widget(header_widget, header_area);
 
-    // Visible window
+    // ── Variable-height track rows ────────────────────────────────────────────
+    let playing_path = app.player.current_track.as_ref().map(|t| t.path.clone());
     let visible_height = list_area.height as usize;
-    if app.track_list_index >= visible_height + app.track_list_offset {
-        app.track_list_offset = app.track_list_index + 1 - visible_height;
-    } else if app.track_list_index < app.track_list_offset {
-        app.track_list_offset = app.track_list_index;
+
+    // Rebuild wrap cache if width changed or cache was invalidated
+    if app.wrapped_width != w {
+        app.rebuild_wrapped_tracks(w);
     }
 
-    let playing_path = app.player.current_track.as_ref().map(|t| t.path.clone());
-
-    let items: Vec<ListItem> = app
-        .filtered_tracks
-        .iter()
-        .enumerate()
-        .skip(app.track_list_offset)
-        .take(visible_height)
-        .map(|(i, track)| {
-            let is_selected = i == app.track_list_index;
-            let is_playing = playing_path.as_deref() == Some(&track.path);
-
-            let title_display  = truncate(track.display_title(), title_w);
-            let artist_display = truncate(track.display_artist(), artist_w);
-            let album_display  = truncate(track.display_album(), album_w);
-            // Use only the first genre tag (before any comma)
-            let genre_raw = track.genre.split(',').next().unwrap_or("").trim();
-            let genre_display = truncate(genre_raw, genre_w);
-            let dur = track.duration_str();
-
-            let play_icon = if is_playing {
-                match app.player.state {
-                    PlayerState::Playing => "▶",
-                    PlayerState::Paused  => "⏸",
-                    PlayerState::Stopped => " ",
-                }
-            } else {
-                " "
-            };
-
-            let line_str = format!(
-                "{} {:<tw$}  {:<aw$}  {:<bw$}  {:<gw$}  {:>4}",
-                play_icon, title_display, artist_display, album_display, genre_display, dur,
-                tw = title_w.saturating_sub(2), aw = artist_w, bw = album_w, gw = genre_w
-            );
-
-            let style = if is_selected && active {
-                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
-            } else if is_selected {
-                Style::default().fg(ACCENT2).bg(SEL_BG)
-            } else if is_playing {
-                Style::default().fg(PLAYING)
-            } else {
-                Style::default().fg(FG)
-            };
-
-            ListItem::new(Line::from(Span::styled(line_str, style)))
-        })
+    // Non-selected rows are always 1 pixel row; selected row expands to full height
+    let sel = app.track_list_index;
+    let row_heights: Vec<usize> = app.wrapped_tracks.iter().enumerate()
+        .map(|(i, (_, expanded))| if i == sel { expanded.len() } else { 1 })
         .collect();
 
-    let count_text = format!(" {}/{} ", app.track_list_index + 1, app.filtered_tracks.len());
-    let count_widget = Paragraph::new(count_text)
-        .style(Style::default().fg(DIM))
-        .alignment(Alignment::Right);
+    // Scroll: keep selection visible, counting pixel rows
+    if !row_heights.is_empty() {
+        let sel_clamped = sel.min(row_heights.len().saturating_sub(1));
+        let sel_start: usize = row_heights[..sel_clamped].iter().sum();
+        let sel_end = sel_start + row_heights[sel_clamped];
+        let offset_rows: usize = row_heights[..app.track_list_offset.min(row_heights.len())].iter().sum();
 
-    let list = List::new(items).style(Style::default().bg(BG));
-    f.render_widget(list, list_area);
+        if sel_start < offset_rows {
+            app.track_list_offset = sel_clamped;
+        } else if sel_end > offset_rows + visible_height {
+            let mut consumed = 0usize;
+            let mut new_offset = sel_clamped;
+            for idx in (0..=sel_clamped).rev() {
+                consumed += row_heights[idx];
+                if consumed >= visible_height { new_offset = idx + 1; break; }
+                if idx == 0 { new_offset = 0; }
+            }
+            app.track_list_offset = new_offset;
+        }
+    }
 
-    // Render count in top-right of list area
-    let count_area = Rect {
-        x: inner.x,
-        y: inner.y,
-        width: inner.width,
-        height: 1,
-    };
-    f.render_widget(count_widget, count_area);
+    // Render
+    let mut y = list_area.y;
+    let bottom = list_area.y + list_area.height;
+
+    for (i, (collapsed, expanded)) in app.wrapped_tracks.iter().enumerate().skip(app.track_list_offset) {
+        if y >= bottom { break; }
+
+        let track = &app.filtered_tracks[i];
+        let is_selected = i == app.track_list_index;
+        let is_playing  = playing_path.as_deref() == Some(&track.path);
+
+        let row_bg = if is_selected { SEL_BG } else { BG };
+        let fg = if is_selected && active { HIGHLIGHT }
+                 else if is_selected      { ACCENT2 }
+                 else if is_playing       { PLAYING }
+                 else                     { FG };
+        let bold = is_selected && active;
+
+        let play_icon = if is_playing {
+            match app.player.state {
+                PlayerState::Playing => "▶",
+                PlayerState::Paused  => "⏸",
+                PlayerState::Stopped => " ",
+            }
+        } else { " " };
+
+        // Non-selected: show truncated single line. Selected: show all wrapped lines.
+        let render_lines: &[String] = if is_selected { expanded } else {
+            std::slice::from_ref(collapsed)
+        };
+
+        for (row_idx, line_text) in render_lines.iter().enumerate() {
+            if y >= bottom { break; }
+
+            let (line_fg, line_bold) = if row_idx == 0 {
+                (fg, bold)
+            } else {
+                let cfg = if is_selected && active { ACCENT } else { DIM };
+                (cfg, false)
+            };
+
+            let text = if row_idx == 0 {
+                format!("{}{}", play_icon, &line_text[1..])
+            } else {
+                line_text.clone()
+            };
+
+            let style = Style::default().fg(line_fg).bg(row_bg)
+                .add_modifier(if line_bold { Modifier::BOLD } else { Modifier::empty() });
+
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(text, style)))
+                    .style(Style::default().bg(row_bg)),
+                Rect { x: list_area.x, y, width: list_area.width, height: 1 },
+            );
+            y += 1;
+        }
+    }
+
+    // Fill remaining space
+    while y < bottom {
+        f.render_widget(
+            Paragraph::new("").style(Style::default().bg(BG)),
+            Rect { x: list_area.x, y, width: list_area.width, height: 1 },
+        );
+        y += 1;
+    }
+
+    // Count indicator
+    f.render_widget(
+        Paragraph::new(format!(" {}/{} ", app.track_list_index + 1, app.filtered_tracks.len()))
+            .style(Style::default().fg(DIM))
+            .alignment(Alignment::Right),
+        Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
+    );
 }
 
 fn render_queue(f: &mut Frame, app: &App, area: Rect) {
@@ -710,15 +747,33 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 fn truncate(s: &str, max: usize) -> String {
-    if max < 4 {
-        return s.chars().take(max).collect();
-    }
+    use unicode_width::UnicodeWidthChar;
+    if max == 0 { return String::new(); }
+    let mut result = String::new();
+    let mut w = 0usize;
     let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= max {
-        format!("{:<width$}", s, width = max)
-    } else {
-        let mut result: String = chars[..max - 1].iter().collect();
-        result.push('…');
-        result
+    for (i, &ch) in chars.iter().enumerate() {
+        let cw = ch.width().unwrap_or(1);
+        if w + cw > max {
+            // Truncate — add ellipsis if there's room
+            if max >= 1 {
+                // Remove last char(s) if needed to fit the ellipsis
+                while w > max - 1 {
+                    if let Some(last) = result.pop() {
+                        w -= last.width().unwrap_or(1);
+                    } else { break; }
+                }
+                result.push('…');
+            }
+            // Pad to max display width
+            let current_w: usize = result.chars().map(|c| c.width().unwrap_or(1)).sum();
+            if current_w < max { result.push_str(&" ".repeat(max - current_w)); }
+            return result;
+        }
+        result.push(ch);
+        w += cw;
     }
+    // String fit — pad to max
+    if w < max { result.push_str(&" ".repeat(max - w)); }
+    result
 }

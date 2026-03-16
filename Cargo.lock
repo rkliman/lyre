@@ -1222,6 +1222,7 @@ dependencies = [
  "serde",
  "shellexpand",
  "tokio",
+ "unicode-width 0.2.0",
  "walkdir",
  "zbus",
 ]
