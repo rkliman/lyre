@@ -1,0 +1,724 @@
+use ratatui::{
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{
+        Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap,
+    },
+    Frame,
+};
+
+use crate::app::App;
+use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
+use crate::types::format_duration;
+
+// ── Colour palette ────────────────────────────────────────────────────────────
+const FG: Color = Color::Rgb(220, 215, 205);       // warm off-white
+const BG: Color = Color::Rgb(18, 16, 14);          // near-black
+const ACCENT: Color = Color::Rgb(214, 163, 98);    // warm gold
+const ACCENT2: Color = Color::Rgb(178, 120, 68);   // darker gold
+const DIM: Color = Color::Rgb(100, 92, 80);        // muted
+const HIGHLIGHT: Color = Color::Rgb(240, 195, 120);// bright gold highlight
+const PLAYING: Color = Color::Rgb(130, 200, 140);  // soft green for playing indicator
+const HEADER_BG: Color = Color::Rgb(30, 26, 22);   // slightly lighter bg for headers
+const SEL_BG: Color = Color::Rgb(45, 38, 28);      // selection background
+
+pub fn render(f: &mut Frame, app: &mut App) {
+    let area = f.area();
+
+    // ── Top-level layout: body + player bar ──────────────────────────────────
+    let root = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),     // body
+            Constraint::Length(5),  // player bar
+        ])
+        .split(area);
+
+    let body_area = root[0];
+    let player_area = root[1];
+
+    // ── Body: sidebar | tracklist | queue ─────────────────────────────────────
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(20),  // sidebar
+            Constraint::Min(10),         // track list
+            Constraint::Percentage(28),  // queue
+        ])
+        .split(body_area);
+
+    render_sidebar(f, app, body[0]);
+    render_tracklist(f, app, body[1]);
+    render_queue(f, app, body[2]);
+    render_player(f, app, player_area);
+
+    if app.show_help {
+        render_help(f, area);
+    }
+
+    // Overlays render on top of everything
+    match &app.overlay {
+        Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, name),
+        Overlay::AddToPlaylist { selected, .. } => render_add_to_playlist_overlay(f, area, app, *selected),
+        Overlay::None => {}
+    }
+}
+
+fn panel_block<'a>(title: &'a str, active: bool) -> Block<'a> {
+    let border_style = if active {
+        Style::default().fg(ACCENT)
+    } else {
+        Style::default().fg(DIM)
+    };
+
+    Block::default()
+        .title(Span::styled(
+            format!(" {} ", title),
+            Style::default()
+                .fg(if active { HIGHLIGHT } else { DIM })
+                .add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .style(Style::default().bg(BG))
+}
+
+fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let active = app.active_panel == Panel::Sidebar;
+    let block = panel_block("Library [1]", active);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let items: Vec<ListItem> = app
+        .sidebar_items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let is_selected = i == app.sidebar_index;
+
+            let style = if item.is_header() {
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+            } else if is_selected && active {
+                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default().fg(ACCENT2).bg(SEL_BG)
+            } else {
+                Style::default().fg(FG)
+            };
+
+            // For headers, prepend an expand/collapse chevron
+            let label = if item.is_header() {
+                let section_key = match item {
+                    SidebarItem::Artists   => "Artists",
+                    SidebarItem::Albums    => "Albums",
+                    SidebarItem::Genres    => "Genres",
+                    SidebarItem::Playlists => "Playlists",
+                    _ => "",
+                };
+                let expanded = *app.sidebar_expanded.get(section_key).unwrap_or(&true);
+                let chevron = if expanded { "▼ " } else { "▶ " };
+                format!("{}{}", chevron, item.label().trim_start())
+            } else {
+                item.label()
+            };
+
+            ListItem::new(Line::from(Span::styled(label, style)))
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.sidebar_index));
+
+    let list = List::new(items)
+        .style(Style::default().bg(BG))
+        .highlight_style(Style::default().bg(SEL_BG));
+
+    f.render_stateful_widget(list, inner, &mut state);
+}
+
+fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
+    let active = app.active_panel == Panel::TrackList;
+
+    // Build title — show playlist name or sort info
+    let title_str = match &app.track_context {
+        TrackContext::Playlist(name) => {
+            format!(" ♪ {} [playlist]  K/J:move  x:remove  P:add-to ", name)
+        }
+        TrackContext::Library => {
+            format!(
+                " Tracks [2] — {} {} ",
+                app.sort_field.label(),
+                if app.sort_order == crate::types::SortOrder::Asc { "↑" } else { "↓" }
+            )
+        }
+    };
+    let block = panel_block(&title_str, active)
+        .title_alignment(Alignment::Left);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // ── Inner layout: search box | column headers | track rows ──────────────
+    let inner_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // bordered search box
+            Constraint::Length(1), // column headers
+            Constraint::Min(1),    // track list
+        ])
+        .split(inner);
+
+    let search_area = inner_rows[0];
+    let header_area = inner_rows[1];
+    let list_area   = inner_rows[2];
+
+    // ── Search box ────────────────────────────────────────────────────────────
+    let search_active = app.search_mode;
+    let has_query     = !app.search_query.is_empty();
+
+    let box_bg             = if search_active { Color::Rgb(35, 28, 18) } else { Color::Rgb(22, 19, 15) };
+    let box_border_color   = if search_active { ACCENT } else if has_query { ACCENT2 } else { DIM };
+
+    let result_hint = if has_query {
+        format!(" ({} result{})", app.filtered_tracks.len(), if app.filtered_tracks.len() == 1 { "" } else { "s" })
+    } else {
+        String::new()
+    };
+
+    let box_title = if search_active {
+        Span::styled(" search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
+    } else if has_query {
+        Span::styled(format!(" search{} ", result_hint), Style::default().fg(ACCENT))
+    } else {
+        Span::styled(" search ", Style::default().fg(DIM))
+    };
+
+    let search_block = Block::default()
+        .title(box_title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(box_border_color))
+        .style(Style::default().bg(box_bg));
+
+    let search_inner = search_block.inner(search_area);
+    f.render_widget(search_block, search_area);
+
+    let content = if search_active {
+        Line::from(vec![
+            Span::styled(
+                app.search_query.clone(),
+                Style::default().fg(HIGHLIGHT).bg(box_bg).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("█", Style::default().fg(ACCENT).bg(box_bg)),
+        ])
+    } else if has_query {
+        Line::from(Span::styled(
+            app.search_query.clone(),
+            Style::default().fg(ACCENT2).bg(box_bg),
+        ))
+    } else {
+        Line::from(Span::styled(
+            "press / to search…",
+            Style::default().fg(DIM).bg(box_bg),
+        ))
+    };
+
+    f.render_widget(
+        Paragraph::new(content).style(Style::default().bg(box_bg)),
+        search_inner,
+    );
+
+    // Render column headers
+    // Layout: [icon] Title  Artist  Album  Genre  Dur
+    let w = inner.width as usize;
+    let title_w  = w * 28 / 100;
+    let artist_w = w * 22 / 100;
+    let album_w  = w * 22 / 100;
+    let genre_w  = w * 16 / 100;
+    // duration takes the rest (~5 chars + separators)
+
+    let header = format!(
+        "{:<tw$}  {:<aw$}  {:<bw$}  {:<gw$}  {:>4}",
+        "Title", "Artist", "Album", "Genre", "Dur",
+        tw = title_w, aw = artist_w, bw = album_w, gw = genre_w
+    );
+    let header_widget = Paragraph::new(header)
+        .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD).bg(HEADER_BG));
+    f.render_widget(header_widget, header_area);
+
+    // Visible window
+    let visible_height = list_area.height as usize;
+    if app.track_list_index >= visible_height + app.track_list_offset {
+        app.track_list_offset = app.track_list_index + 1 - visible_height;
+    } else if app.track_list_index < app.track_list_offset {
+        app.track_list_offset = app.track_list_index;
+    }
+
+    let playing_path = app.player.current_track.as_ref().map(|t| t.path.clone());
+
+    let items: Vec<ListItem> = app
+        .filtered_tracks
+        .iter()
+        .enumerate()
+        .skip(app.track_list_offset)
+        .take(visible_height)
+        .map(|(i, track)| {
+            let is_selected = i == app.track_list_index;
+            let is_playing = playing_path.as_deref() == Some(&track.path);
+
+            let title_display  = truncate(track.display_title(), title_w);
+            let artist_display = truncate(track.display_artist(), artist_w);
+            let album_display  = truncate(track.display_album(), album_w);
+            // Use only the first genre tag (before any comma)
+            let genre_raw = track.genre.split(',').next().unwrap_or("").trim();
+            let genre_display = truncate(genre_raw, genre_w);
+            let dur = track.duration_str();
+
+            let play_icon = if is_playing {
+                match app.player.state {
+                    PlayerState::Playing => "▶",
+                    PlayerState::Paused  => "⏸",
+                    PlayerState::Stopped => " ",
+                }
+            } else {
+                " "
+            };
+
+            let line_str = format!(
+                "{} {:<tw$}  {:<aw$}  {:<bw$}  {:<gw$}  {:>4}",
+                play_icon, title_display, artist_display, album_display, genre_display, dur,
+                tw = title_w.saturating_sub(2), aw = artist_w, bw = album_w, gw = genre_w
+            );
+
+            let style = if is_selected && active {
+                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default().fg(ACCENT2).bg(SEL_BG)
+            } else if is_playing {
+                Style::default().fg(PLAYING)
+            } else {
+                Style::default().fg(FG)
+            };
+
+            ListItem::new(Line::from(Span::styled(line_str, style)))
+        })
+        .collect();
+
+    let count_text = format!(" {}/{} ", app.track_list_index + 1, app.filtered_tracks.len());
+    let count_widget = Paragraph::new(count_text)
+        .style(Style::default().fg(DIM))
+        .alignment(Alignment::Right);
+
+    let list = List::new(items).style(Style::default().bg(BG));
+    f.render_widget(list, list_area);
+
+    // Render count in top-right of list area
+    let count_area = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: 1,
+    };
+    f.render_widget(count_widget, count_area);
+}
+
+fn render_queue(f: &mut Frame, app: &App, area: Rect) {
+    let active = app.active_panel == Panel::Queue;
+    let title = format!("Queue [3] ({} tracks)", app.player.queue.len());
+    let block = panel_block(&title, active);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if app.player.queue.is_empty() {
+        let empty = Paragraph::new("No tracks in queue\n\nPress [a] on a track\nor [A] to add all")
+            .style(Style::default().fg(DIM))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+        f.render_widget(empty, inner);
+        return;
+    }
+
+    let w = inner.width as usize;
+    let items: Vec<ListItem> = app
+        .player
+        .queue
+        .iter()
+        .enumerate()
+        .map(|(i, track)| {
+            let is_playing = i == app.player.queue_index
+                && app.player.state != PlayerState::Stopped;
+            let is_selected = i == app.queue_index;
+
+            let icon = if is_playing {
+                match app.player.state {
+                    PlayerState::Playing => "▶ ",
+                    PlayerState::Paused => "⏸ ",
+                    PlayerState::Stopped => "  ",
+                }
+            } else {
+                "  "
+            };
+
+            let title_str = truncate(track.display_title(), w.saturating_sub(2));
+            let line = format!("{}{}", icon, title_str);
+
+            let style = if is_selected && active {
+                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default().fg(ACCENT2).bg(SEL_BG)
+            } else if is_playing {
+                Style::default().fg(PLAYING).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(FG)
+            };
+
+            ListItem::new(Line::from(Span::styled(line, style)))
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.queue_index));
+
+    let list = List::new(items)
+        .style(Style::default().bg(BG))
+        .highlight_style(Style::default().bg(SEL_BG));
+
+    f.render_stateful_widget(list, inner, &mut state);
+}
+
+fn render_player(f: &mut Frame, app: &App, area: Rect) {
+    // Outer block
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT2))
+        .style(Style::default().bg(BG));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // ── Horizontal split: [art | info | progress] ────────────────────────────
+    // Art is 10 chars wide + 1 gap; info takes ~55%; progress takes the rest.
+    let art_w = 11u16; // 10 block cols + 1 padding
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(art_w),   // album art
+            Constraint::Percentage(50),  // now playing info
+            Constraint::Min(10),         // progress + controls
+        ])
+        .split(inner);
+
+    // ── Album art ─────────────────────────────────────────────────────────────
+    let art_area = cols[0];
+    // Vertically centre the 3-row art within the available height
+    let art_h = 3u16;
+    let v_pad = (art_area.height.saturating_sub(art_h)) / 2;
+    let art_rect = Rect {
+        x: art_area.x,
+        y: art_area.y + v_pad,
+        width: 10,
+        height: art_h.min(art_area.height),
+    };
+
+    if art_rect.height > 0 {
+        let art = app.album_art.as_ref().cloned()
+            .unwrap_or_else(|| crate::art::BlockArt::placeholder(10, art_h));
+
+        for (i, row) in art.rows.iter().enumerate().take(art_rect.height as usize) {
+            let row_rect = Rect {
+                x: art_rect.x,
+                y: art_rect.y + i as u16,
+                width: art_rect.width,
+                height: 1,
+            };
+            f.render_widget(
+                Paragraph::new(row.clone()).style(Style::default().bg(BG)),
+                row_rect,
+            );
+        }
+    }
+
+    // ── Now playing info ──────────────────────────────────────────────────────
+    let left_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(cols[1]);
+
+    if let Some(track) = &app.player.current_track {
+        let state_icon = match app.player.state {
+            PlayerState::Playing => "▶",
+            PlayerState::Paused  => "⏸",
+            PlayerState::Stopped => "■",
+        };
+
+        let title_line = Line::from(vec![
+            Span::styled(format!("{} ", state_icon), Style::default().fg(PLAYING)),
+            Span::styled(
+                truncate(track.display_title(), cols[1].width as usize - 4),
+                Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD),
+            ),
+        ]);
+
+        let artist_line = Line::from(Span::styled(
+            format!("  {} — {}", track.display_artist(), track.display_album()),
+            Style::default().fg(ACCENT),
+        ));
+
+        let meta_line = Line::from(Span::styled(
+            format!(
+                "  {} {}  vol {:.0}%",
+                if track.year > 0 { track.year.to_string() } else { String::new() },
+                if !track.genre.is_empty() {
+                    format!("· {}", track.genre.split(',').next().unwrap_or("").trim())
+                } else {
+                    String::new()
+                },
+                app.player.volume * 100.0
+            ),
+            Style::default().fg(DIM),
+        ));
+
+        f.render_widget(Paragraph::new(title_line), left_rows[0]);
+        f.render_widget(Paragraph::new(artist_line), left_rows[1]);
+        f.render_widget(Paragraph::new(meta_line), left_rows[2]);
+    } else {
+        let idle = Paragraph::new("■ lyre — no track playing")
+            .style(Style::default().fg(DIM));
+        f.render_widget(idle, left_rows[0]);
+
+        let hint = Paragraph::new("  Press [Enter] to play · [?] for help")
+            .style(Style::default().fg(DIM));
+        f.render_widget(hint, left_rows[1]);
+    }
+
+    // ── Progress bar + time ───────────────────────────────────────────────────
+    let right_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(cols[2]);
+
+    let elapsed  = app.player.elapsed_secs();
+    let total    = app.player.current_track.as_ref().map(|t| t.duration).unwrap_or(0);
+    let progress = app.player.progress();
+
+    let time_line = Line::from(vec![
+        Span::styled(format_duration(elapsed), Style::default().fg(FG)),
+        Span::styled(" / ", Style::default().fg(DIM)),
+        Span::styled(format_duration(total), Style::default().fg(DIM)),
+    ]);
+    f.render_widget(Paragraph::new(time_line).alignment(Alignment::Center), right_rows[0]);
+
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(ACCENT).bg(Color::Rgb(40, 35, 28)))
+        .ratio(progress)
+        .label("");
+    f.render_widget(gauge, right_rows[1]);
+
+    let status = if let Some(msg) = &app.status_message {
+        Span::styled(truncate(msg, cols[2].width as usize), Style::default().fg(DIM))
+    } else {
+        Span::styled(
+            "spc:play/pause  n:next  p:prev  s:stop  S:sort  /:search",
+            Style::default().fg(DIM),
+        )
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(status)).alignment(Alignment::Center),
+        right_rows[2],
+    );
+}
+
+fn render_help(f: &mut Frame, area: Rect) {
+    let w = 66u16.min(area.width);
+    let h = 36u16.min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup = Rect { x, y, width: w, height: h };
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(" ♫ Lyre — Keybindings ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let lines: Vec<(&str, Vec<(&str, &str)>)> = vec![
+        ("Navigation", vec![
+            ("Tab / Shift-Tab",       "Cycle panels"),
+            ("1 / 2 / 3",             "Jump to sidebar / tracks / queue"),
+            ("j / k  or  ↑ / ↓",     "Move up / down"),
+            ("g / G",                 "Go to top / bottom"),
+            ("u / d  or  PgUp/PgDn", "Page up / down (all panels)"),
+            ("h / l  or  ← / →",     "Switch panels"),
+            ("→ / l  on section header", "Expand  (or focus tracks if open)"),
+            ("← / h  on section header", "Collapse"),
+        ]),
+        ("Playback", vec![
+            ("Enter  or  Space", "Play selected / toggle pause"),
+            ("n",                "Next track in queue"),
+            ("p",                "Previous track in queue"),
+            ("s",                "Stop"),
+            ("+ / -",            "Volume up / down"),
+        ]),
+        ("Queue", vec![
+            ("a",       "Add selected track to queue"),
+            ("A",       "Add all visible tracks to queue"),
+            ("x / Del", "Remove selected from queue"),
+            ("c",       "Clear entire queue"),
+        ]),
+        ("Library", vec![
+            ("S",   "Cycle sort field (title→artist→album→year→genre→dur)"),
+            ("R",   "Toggle sort order (asc / desc)"),
+            ("/",   "Activate search bar (always visible above track list)"),
+            ("Esc", "Deactivate search bar  (results stay if query non-empty)"),
+        ]),
+        ("Playlists", vec![
+            ("N  on Playlists header", "Create a new empty playlist"),
+            ("P  on any track",        "Add track to an existing playlist"),
+            ("x / Del  in playlist",   "Remove track from playlist (saves immediately)"),
+            ("K  in playlist",         "Move selected track up"),
+            ("J  in playlist",         "Move selected track down"),
+        ]),
+        ("Other", vec![
+            ("?", "Toggle this help overlay"),
+            ("q", "Quit"),
+        ]),
+    ];
+
+    let mut text_lines: Vec<Line> = Vec::new();
+    for (section, keys) in &lines {
+        text_lines.push(Line::from(Span::styled(
+            *section,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )));
+        for (key, desc) in keys {
+            text_lines.push(Line::from(vec![
+                Span::styled(format!("  {:28}", key), Style::default().fg(FG)),
+                Span::styled(*desc, Style::default().fg(DIM)),
+            ]));
+        }
+        text_lines.push(Line::from(""));
+    }
+
+    let para = Paragraph::new(text_lines)
+        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+    f.render_widget(para, inner);
+}
+
+fn render_new_playlist_overlay(f: &mut Frame, area: Rect, name: &str) {
+    let w = 50u16.min(area.width);
+    let h = 5u16;
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup = Rect { x, y, width: w, height: h };
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(" New Playlist ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new(Span::styled("Playlist name:", Style::default().fg(DIM))),
+        rows[0],
+    );
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            format!("{}█", name),
+            Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD),
+        )),
+        rows[1],
+    );
+    f.render_widget(
+        Paragraph::new(Span::styled("Enter to confirm · Esc to cancel", Style::default().fg(DIM))),
+        rows[2],
+    );
+}
+
+fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected: usize) {
+    let w = 50u16.min(area.width);
+    let h = (app.playlists.len() as u16 + 4).min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup = Rect { x, y, width: w, height: h };
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(" Add to Playlist ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let items: Vec<ListItem> = app.playlists.iter().enumerate().map(|(i, pl)| {
+        let style = if i == selected {
+            Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(FG)
+        };
+        let icon = if i == selected { "▶ " } else { "  " };
+        ListItem::new(Line::from(Span::styled(format!("{}{}", icon, pl.name), style)))
+    }).collect();
+
+    let mut state = ListState::default();
+    state.select(Some(selected));
+    let list = List::new(items).style(Style::default().bg(Color::Rgb(22, 18, 14)));
+    f.render_stateful_widget(list, rows[0], &mut state);
+
+    f.render_widget(
+        Paragraph::new(Span::styled("Enter to add · Esc to cancel", Style::default().fg(DIM)))
+            .alignment(Alignment::Center),
+        rows[1],
+    );
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+fn truncate(s: &str, max: usize) -> String {
+    if max < 4 {
+        return s.chars().take(max).collect();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        format!("{:<width$}", s, width = max)
+    } else {
+        let mut result: String = chars[..max - 1].iter().collect();
+        result.push('…');
+        result
+    }
+}

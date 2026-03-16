@@ -1,0 +1,24 @@
+[package]
+name = "lyre"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "lyre"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+rusqlite = { version = "0.32", features = ["bundled"] }
+shellexpand = "3"
+rodio = { version = "0.19", features = ["symphonia-all"] }
+serde = { version = "1", features = ["derive"] }
+config = "0.14"
+fuzzy-matcher = "0.3"
+colored = "2"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+lofty = "0.22"
+walkdir = "2"
