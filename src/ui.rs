@@ -24,20 +24,71 @@ const PLAYING: Color = Color::Rgb(130, 200, 140);  // soft green for playing ind
 const HEADER_BG: Color = Color::Rgb(30, 26, 22);   // slightly lighter bg for headers
 const SEL_BG: Color = Color::Rgb(45, 38, 28);      // selection background
 
+fn render_banner(f: &mut Frame, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT2))
+        .style(Style::default().bg(BG));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Split inner into left (lyre glyph + title) and right (author + version)
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(36)])
+        .split(inner);
+
+    // ── Left: glyph + app name ────────────────────────────────────────────────
+    // The lyre glyph (𝄞 is a musical symbol — U+1D11E treble clef,
+    // but or the lyre emoji reads better in most terminals)
+    let left = Line::from(vec![
+        Span::styled(" lyre", Style::default()
+            .fg(HIGHLIGHT)
+            .add_modifier(Modifier::BOLD)),
+        Span::styled("  ", Style::default()),
+        Span::styled("─── ", Style::default().fg(DIM)),
+        Span::styled("a music library & player. press '?' for help.",
+            Style::default().fg(DIM)),
+    ]);
+
+    // ── Right: author + version ───────────────────────────────────────────────
+    let right = Line::from(vec![
+        Span::styled("Randall Kliman", Style::default().fg(ACCENT)),
+        Span::styled("  ·  ", Style::default().fg(DIM)),
+        Span::styled("v0.1.0", Style::default().fg(DIM)),
+        Span::styled("  ", Style::default()),
+    ]);
+
+    f.render_widget(
+        Paragraph::new(left).style(Style::default().bg(BG)),
+        cols[0],
+    );
+    f.render_widget(
+        Paragraph::new(right)
+            .alignment(Alignment::Right)
+            .style(Style::default().bg(BG)),
+        cols[1],
+    );
+}
+
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    // ── Top-level layout: body + player bar ──────────────────────────────────
+    // ── Top-level layout: banner + body + player bar ─────────────────────────
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(3),  // banner
             Constraint::Min(1),     // body
             Constraint::Length(5),  // player bar
         ])
         .split(area);
 
-    let body_area = root[0];
-    let player_area = root[1];
+    let banner_area = root[0];
+    let body_area   = root[1];
+    let player_area = root[2];
 
     // ── Body: sidebar | tracklist | queue ─────────────────────────────────────
     let body = Layout::default()
@@ -49,6 +100,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(body_area);
 
+    render_banner(f, banner_area);
     render_sidebar(f, app, body[0]);
     render_tracklist(f, app, body[1]);
     render_queue(f, app, body[2]);
@@ -189,11 +241,11 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let box_title = if search_active {
-        Span::styled(" 🔍 search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
+        Span::styled(" search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
     } else if has_query {
-        Span::styled(format!(" 🔍 search{} ", result_hint), Style::default().fg(ACCENT))
+        Span::styled(format!(" search{} ", result_hint), Style::default().fg(ACCENT))
     } else {
-        Span::styled(" 🔍 search ", Style::default().fg(DIM))
+        Span::styled(" search ", Style::default().fg(DIM))
     };
 
     let search_block = Block::default()
