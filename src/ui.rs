@@ -80,15 +80,15 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // player bar
-            Constraint::Min(1),     // body
             Constraint::Length(3),  // banner
+            Constraint::Min(1),     // body
+            Constraint::Length(5),  // player bar
         ])
         .split(area);
 
-    let player_area = root[0];
+    let banner_area = root[0];
     let body_area   = root[1];
-    let banner_area = root[2];
+    let player_area = root[2];
 
     // ── Body: sidebar | tracklist | queue ─────────────────────────────────────
     let body = Layout::default()
@@ -100,11 +100,11 @@ pub fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(body_area);
 
-    render_player(f, app, player_area);
+    render_banner(f, banner_area);
     render_sidebar(f, app, body[0]);
     render_tracklist(f, app, body[1]);
     render_queue(f, app, body[2]);
-    render_banner(f, banner_area);
+    render_player(f, app, player_area);
 
     if app.show_help {
         render_help(f, area);

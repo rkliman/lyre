@@ -508,8 +508,28 @@ impl App {
     fn play_selected(&mut self) {
         if self.filtered_tracks.is_empty() { return; }
         let idx = self.track_list_index.min(self.filtered_tracks.len() - 1);
-        self.player.set_queue(self.filtered_tracks.clone(), idx);
-        let track = self.player.queue[idx].clone();
+        
+        // If queue is empty, start a new queue from filtered tracks.
+        // Otherwise, just play the selected track from the current queue.
+        if self.player.queue.is_empty() {
+            self.player.set_queue(self.filtered_tracks.clone(), idx);
+            // Update UI's queue_index to match
+            self.queue_index = idx;
+        } else {
+            // Add the selected track to the queue if not already there
+            let track = self.filtered_tracks[idx].clone();
+            if !self.player.queue.iter().any(|t| t.path == track.path) {
+                self.player.queue.push(track.clone());
+            }
+            // Set queue index to this newly added (or existing) track
+            if let Some(pos) = self.player.queue.iter().position(|t| t.path == self.filtered_tracks[idx].path) {
+                self.player.queue_index = pos;
+                // Update UI's queue_index to match
+                self.queue_index = pos;
+            }
+        }
+        
+        let track = self.player.queue[self.player.queue_index].clone();
         match self.player.play_track(track) {
             Ok(_) => {
                 self.set_status(format!("Playing: {} — {}",
@@ -525,6 +545,8 @@ impl App {
         if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
             let title = track.display_title().to_string();
             self.player.add_to_queue(track.clone());
+            // Update UI's queue_index to point to the newly added track
+            self.queue_index = self.player.queue.len().saturating_sub(1);
             self.set_status(format!("Added to queue: {}", title));
         }
     }
@@ -532,6 +554,10 @@ impl App {
     fn add_all_to_queue(&mut self) {
         let n = self.filtered_tracks.len();
         for t in &self.filtered_tracks { self.player.queue.push(t.clone()); }
+        // Update UI's queue_index to point to the first newly added track
+        if n > 0 {
+            self.queue_index = self.player.queue.len().saturating_sub(n);
+        }
         self.set_status(format!("Added {} tracks to queue", n));
     }
 
