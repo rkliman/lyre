@@ -90,10 +90,10 @@ impl App {
         let playlists = scan_playlists(&music_dir);
 
         let mut sidebar_expanded: HashMap<String, bool> = HashMap::new();
-        sidebar_expanded.insert("Artists".to_string(),   true);
-        sidebar_expanded.insert("Albums".to_string(),    true);
-        sidebar_expanded.insert("Genres".to_string(),    true);
-        sidebar_expanded.insert("Playlists".to_string(), true);
+        sidebar_expanded.insert("Artists".to_string(),   false);
+        sidebar_expanded.insert("Albums".to_string(),    false);
+        sidebar_expanded.insert("Genres".to_string(),    false);
+        sidebar_expanded.insert("Playlists".to_string(), false);
 
         let player = Player::new().expect("Failed to initialize audio.");
 
@@ -239,7 +239,22 @@ impl App {
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 let item = self.sidebar_items[self.sidebar_index].clone();
-                if item.is_header() { self.toggle_sidebar_section(&item); }
+                if item.is_header() {
+                    self.toggle_sidebar_section(&item);
+                } else {
+                    // If on a child item, move cursor to the header of its section
+                    let header_index = match &item {
+                        SidebarItem::Artist(_) => self.sidebar_items.iter().position(|i| matches!(i, SidebarItem::Artists)),
+                        SidebarItem::Album(_) => self.sidebar_items.iter().position(|i| matches!(i, SidebarItem::Albums)),
+                        SidebarItem::Genre(_) => self.sidebar_items.iter().position(|i| matches!(i, SidebarItem::Genres)),
+                        SidebarItem::Playlist(_) => self.sidebar_items.iter().position(|i| matches!(i, SidebarItem::Playlists)),
+                        _ => None,
+                    };
+                    if let Some(idx) = header_index {
+                        self.sidebar_index = idx;
+                        self.on_sidebar_select();
+                    }
+                }
             }
             KeyCode::Char('N') => {
                 let item = self.sidebar_items[self.sidebar_index].clone();
