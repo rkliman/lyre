@@ -269,6 +269,7 @@ impl App {
             KeyCode::Char('K') if in_playlist => { self.playlist_move_track_up(self.track_list_index); }
             KeyCode::Char('J') if in_playlist => { self.playlist_move_track_down(self.track_list_index); }
             KeyCode::Left | KeyCode::Char('h') => { self.active_panel = Panel::Sidebar; }
+            KeyCode::Right | KeyCode::Char('l') => { self.active_panel = Panel::Queue; }
             _ => {}
         }
     }
