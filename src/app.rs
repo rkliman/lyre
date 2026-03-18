@@ -245,6 +245,7 @@ pub struct App {
     pub mpris_art_url: Option<String>,
     pub overlay: Overlay,
     pub show_help: bool,
+    pub help_scroll: usize,
     pub lyrics_visible: bool,
     pub lyrics_content: Option<String>,
     pub lyrics_scroll: usize,
@@ -294,6 +295,7 @@ impl App {
             mpris_art_url: None,
             overlay: Overlay::None,
             show_help: false,
+            help_scroll: 0,
             lyrics_visible: false,
             lyrics_content: None,
             lyrics_scroll: 0,
@@ -357,12 +359,12 @@ impl App {
 
     pub fn handle_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         if self.overlay != Overlay::None { return self.handle_overlay_key(key); }
-        if self.show_help { self.show_help = false; return false; }
+        if self.show_help { return self.handle_help_key(key); }
         if self.search_mode { return self.handle_search_key(key); }
 
         match key {
             KeyCode::Char('q') | KeyCode::Char('Q') => return true,
-            KeyCode::Char('?') => self.show_help = true,
+            KeyCode::Char('?') => { self.show_help = true; self.help_scroll = 0; }
             KeyCode::Tab      => self.cycle_panel_forward(),
             KeyCode::BackTab  => self.cycle_panel_backward(),
             KeyCode::Char('1') => self.active_panel = Panel::Sidebar,
@@ -551,6 +553,20 @@ impl App {
                 self.search_query.push(c);
                 self.apply_fuzzy_search();
             }
+            _ => {}
+        }
+        false
+    }
+
+    fn handle_help_key(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Esc | KeyCode::Char('?') => { self.show_help = false; self.help_scroll = 0; }
+            KeyCode::Up   | KeyCode::Char('k') => { self.help_scroll = self.help_scroll.saturating_sub(1); }
+            KeyCode::Down | KeyCode::Char('j') => { self.help_scroll = self.help_scroll.saturating_add(1); }
+            KeyCode::PageUp   | KeyCode::Char('u') => { self.help_scroll = self.help_scroll.saturating_sub(10); }
+            KeyCode::PageDown | KeyCode::Char('d') => { self.help_scroll = self.help_scroll.saturating_add(10); }
+            KeyCode::Char('g') => { self.help_scroll = 0; }
+            KeyCode::Char('G') => { self.help_scroll = usize::MAX; } // Will be clamped in render
             _ => {}
         }
         false

@@ -643,10 +643,10 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
-    let w = 120u16.min(area.width);
-    let h = 30u16.min(area.height);
+    let w = 70u16.min(area.width);
+    let h = area.height.saturating_sub(4);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let y = area.y + 2;
     let popup = Rect { x, y, width: w, height: h };
 
     f.render_widget(Clear, popup);
@@ -661,103 +661,108 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    // Split into two columns
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+    // Split into content and footer
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    // Left column sections
-    let left_sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
+    let content_area = layout[0];
+    let footer_area = layout[1];
+
+    // All sections in one list
+    let sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
         ("Navigation", vec![
-            ("Tab / Shift-Tab",       "Cycle panels"),
-            ("1 / 2 / 3",             "Jump to sidebar/tracks/queue"),
-            ("j / k  or  ↑ / ↓",     "Move up / down"),
-            ("g / G",                 "Go to top / bottom"),
-            ("u / d  or  PgUp/PgDn", "Page up / down"),
-            ("h / l  or  ← / →",     "Switch panels"),
-            ("→ / l on header",      "Expand"),
-            ("← / h on header",      "Collapse"),
+            ("Tab / Shift-Tab",            "Cycle panels"),
+            ("1 / 2 / 3",                  "Jump to sidebar / tracks / queue"),
+            ("j / k  or  ↑ / ↓",          "Move up / down"),
+            ("g / G",                      "Go to top / bottom"),
+            ("u / d  or  PgUp/PgDn",      "Page up / down (all panels)"),
+            ("h / l  or  ← / →",          "Switch panels"),
+            ("→ / l  on section header",  "Expand  (or focus tracks if open)"),
+            ("← / h  on section header",  "Collapse"),
         ]),
         ("Playback", vec![
-            ("Enter / Space", "Play / toggle pause"),
-            ("n",             "Next track"),
-            ("p",             "Previous track"),
-            ("s",             "Stop"),
-            ("+ / -",         "Volume up / down"),
-            (". / ,",         "Seek forward / backward (5s)"),
+            ("Enter  or  Space", "Play selected / toggle pause"),
+            ("n",                "Next track in queue"),
+            ("p",                "Previous track in queue"),
+            ("s",                "Stop"),
+            ("+ / -",            "Volume up / down"),
+            (". / ,",            "Seek forward / backward (5 seconds)"),
         ]),
         ("Lyrics", vec![
             ("4  or  L", "Toggle lyrics panel"),
-            ("r",        "Reload lyrics"),
+            ("r",        "Reload lyrics for current track (when in lyrics panel)"),
         ]),
-    ];
-
-    // Right column sections
-    let right_sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
         ("Queue", vec![
-            ("a",       "Add selected to queue"),
-            ("A",       "Add all visible to queue"),
-            ("x / Del", "Remove from queue"),
-            ("c",       "Clear queue"),
+            ("a",       "Add selected track to queue"),
+            ("A",       "Add all visible tracks to queue"),
+            ("x / Del", "Remove selected from queue"),
+            ("c",       "Clear entire queue"),
         ]),
         ("Library", vec![
-            ("S",   "Cycle sort field"),
-            ("R",   "Toggle sort order"),
-            ("/",   "Activate search"),
-            ("Esc", "Deactivate search"),
+            ("S",   "Cycle sort field (title→artist→album→year→genre→dur)"),
+            ("R",   "Toggle sort order (asc / desc)"),
+            ("/",   "Activate search bar (always visible above track list)"),
+            ("Esc", "Deactivate search bar  (results stay if query non-empty)"),
         ]),
         ("Playlists", vec![
-            ("N on header",    "Create playlist"),
-            ("P on track",     "Add to playlist"),
-            ("x / Del",        "Remove from playlist"),
-            ("K / J",          "Move track up / down"),
+            ("N  on Playlists header", "Create a new empty playlist"),
+            ("P  on any track",        "Add track to an existing playlist"),
+            ("x / Del  in playlist",   "Remove track from playlist (saves immediately)"),
+            ("K  in playlist",         "Move selected track up"),
+            ("J  in playlist",         "Move selected track down"),
         ]),
         ("Other", vec![
-            ("?", "Toggle help"),
+            ("?", "Toggle this help overlay"),
             ("q", "Quit"),
         ]),
     ];
 
-    // Render left column
-    let mut left_lines: Vec<Line> = Vec::new();
-    for (section, keys) in &left_sections {
-        left_lines.push(Line::from(Span::styled(
+    // Build all lines
+    let mut all_lines: Vec<Line> = Vec::new();
+    for (section, keys) in &sections {
+        all_lines.push(Line::from(Span::styled(
             *section,
             Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         )));
         for (key, desc) in keys {
-            left_lines.push(Line::from(vec![
-                Span::styled(format!("  {:18}", key), Style::default().fg(c.foreground)),
+            all_lines.push(Line::from(vec![
+                Span::styled(format!("  {:28}", key), Style::default().fg(c.foreground)),
                 Span::styled(*desc, Style::default().fg(c.dim)),
             ]));
         }
-        left_lines.push(Line::from(""));
+        all_lines.push(Line::from(""));
     }
 
-    let left_para = Paragraph::new(left_lines)
-        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
-    f.render_widget(left_para, columns[0]);
+    // Apply scrolling
+    let visible_height = content_area.height as usize;
+    let total_lines = all_lines.len();
+    let max_scroll = total_lines.saturating_sub(visible_height);
+    let scroll_offset = app.help_scroll.min(max_scroll);
 
-    // Render right column
-    let mut right_lines: Vec<Line> = Vec::new();
-    for (section, keys) in &right_sections {
-        right_lines.push(Line::from(Span::styled(
-            *section,
-            Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
-        )));
-        for (key, desc) in keys {
-            right_lines.push(Line::from(vec![
-                Span::styled(format!("  {:18}", key), Style::default().fg(c.foreground)),
-                Span::styled(*desc, Style::default().fg(c.dim)),
-            ]));
-        }
-        right_lines.push(Line::from(""));
-    }
+    let visible_lines: Vec<Line> = all_lines
+        .into_iter()
+        .skip(scroll_offset)
+        .take(visible_height)
+        .collect();
 
-    let right_para = Paragraph::new(right_lines)
+    let para = Paragraph::new(visible_lines)
         .style(Style::default().bg(Color::Rgb(22, 18, 14)));
-    f.render_widget(right_para, columns[1]);
+    f.render_widget(para, content_area);
+
+    // Show scroll indicator
+    let footer_text = if total_lines > visible_height {
+        format!("↑/↓ to scroll ({}/{}) · Esc to close", scroll_offset + 1, total_lines)
+    } else {
+        "Esc or ? to close".to_string()
+    };
+
+    f.render_widget(
+        Paragraph::new(Span::styled(footer_text, Style::default().fg(c.dim)))
+            .alignment(Alignment::Center),
+        footer_area,
+    );
 }
 
 fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
