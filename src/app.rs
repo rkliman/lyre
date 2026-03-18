@@ -384,6 +384,13 @@ impl App {
 
     fn on_sidebar_select(&mut self) {
         let item = self.sidebar_items[self.sidebar_index].clone();
+
+        // Skip expensive operations when navigating to header items
+        // Headers don't have associated tracks to display
+        if item.is_header() {
+            return;
+        }
+
         self.search_query.clear();
         self.track_context = TrackContext::Library;
 
