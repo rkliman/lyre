@@ -36,8 +36,9 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(" lyre", Style::default()
             .fg(c.highlight)
             .add_modifier(Modifier::BOLD)),
+        Span::styled(" v0.1.0", Style::default().fg(c.dim)),
         Span::styled("  ", Style::default()),
-        Span::styled("─── ", Style::default().fg(c.dim)),
+        Span::styled("  ·  ", Style::default().fg(c.dim)),
         Span::styled("a music library & player. press '?' for help.",
             Style::default().fg(c.dim)),
     ]);
@@ -46,9 +47,6 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let right = Line::from(vec![
         Span::styled("by ", Style::default().fg(c.dim)),
         Span::styled("@rkliman", Style::default().fg(c.accent)),
-        Span::styled("  ·  ", Style::default().fg(c.dim)),
-        Span::styled("v0.1.0", Style::default().fg(c.dim)),
-        Span::styled("  ", Style::default()),
     ]);
 
     f.render_widget(
@@ -641,9 +639,9 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn render_help(f: &mut Frame, area: Rect, app: &App) {
+fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
     let c = &app.colors;
-    let w = 70u16.min(area.width);
+    let w = 90u16.min(area.width);
     let h = area.height.saturating_sub(4);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + 2;
@@ -741,6 +739,9 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let max_scroll = total_lines.saturating_sub(visible_height);
     let scroll_offset = app.help_scroll.min(max_scroll);
 
+    // Write back clamped value to prevent unbounded scrolling
+    app.help_scroll = scroll_offset;
+
     let visible_lines: Vec<Line> = all_lines
         .into_iter()
         .skip(scroll_offset)
@@ -753,7 +754,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
 
     // Show scroll indicator
     let footer_text = if total_lines > visible_height {
-        format!("↑/↓ to scroll ({}/{}) · Esc to close", scroll_offset + 1, total_lines)
+        format!("↑/↓ to scroll ({}/{}) · Esc to close", scroll_offset + 1, total_lines - visible_height + 1)
     } else {
         "Esc or ? to close".to_string()
     };
@@ -854,7 +855,7 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
     );
 }
 
-fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
+fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
     let active = app.active_panel == Panel::Lyrics;
 
@@ -880,6 +881,9 @@ fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
     let visible_height = inner.height as usize;
     let max_scroll = lines.len().saturating_sub(visible_height);
     let scroll_offset = app.lyrics_scroll.min(max_scroll);
+
+    // Write back clamped value to prevent unbounded scrolling
+    app.lyrics_scroll = scroll_offset;
 
     let visible_lines: Vec<Line> = lines
         .iter()
