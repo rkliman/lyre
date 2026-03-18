@@ -11,7 +11,6 @@ use ratatui::{
 use crate::app::App;
 use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
 use crate::types::format_duration;
-use unicode_width::UnicodeWidthStr;
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 const FG: Color = Color::Rgb(220, 215, 205);       // warm off-white
@@ -805,7 +804,7 @@ fn truncate(s: &str, max: usize) -> String {
     let mut result = String::new();
     let mut w = 0usize;
     let chars: Vec<char> = s.chars().collect();
-    for (i, &ch) in chars.iter().enumerate() {
+    for (_i, &ch) in chars.iter().enumerate() {
         let cw = ch.width().unwrap_or(1);
         if w + cw > max {
             // Truncate — add ellipsis if there's room

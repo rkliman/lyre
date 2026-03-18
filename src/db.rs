@@ -18,7 +18,7 @@ impl Db {
 
     pub fn all_tracks(&self) -> Result<Vec<Track>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, artist, album, albumartist, title, duration, year, genre
+            "SELECT path, artist, album, albumartist, title, duration, year, genre
              FROM tracks
              ORDER BY artist, album, title",
         )?;
@@ -26,15 +26,14 @@ impl Db {
         let tracks = stmt
             .query_map([], |row| {
                 Ok(Track {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    artist: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    album: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    albumartist: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    title: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                    duration: row.get::<_, Option<i64>>(6)?.unwrap_or(0),
-                    year: row.get::<_, Option<i32>>(7)?.unwrap_or(0),
-                    genre: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+                    path: row.get(0)?,
+                    artist: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    album: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    albumartist: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    title: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    duration: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                    year: row.get::<_, Option<i32>>(6)?.unwrap_or(0),
+                    genre: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 })
             })?
             .filter_map(|r| r.ok())

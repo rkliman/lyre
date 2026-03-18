@@ -40,7 +40,7 @@ impl DecoderState {
 
         let probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts)?;
 
-        let mut format = probed.format;
+        let format = probed.format;
         let track = format
             .tracks()
             .iter()

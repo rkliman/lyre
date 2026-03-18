@@ -17,10 +17,6 @@ use ratatui::text::{Line, Span};
 #[derive(Clone)]
 pub struct BlockArt {
     pub rows: Vec<Line<'static>>,
-    /// Character width (all rows are the same width)
-    pub width: u16,
-    /// Character height (= rows.len())
-    pub height: u16,
 }
 
 impl BlockArt {
@@ -37,7 +33,7 @@ impl BlockArt {
                 ))
             })
             .collect();
-        Self { rows, width: char_w, height: char_h }
+        Self { rows }
     }
 }
 
@@ -110,5 +106,5 @@ fn image_to_block_art(img: &DynamicImage, char_w: u16, char_h: u16) -> BlockArt 
         rows.push(Line::from(spans));
     }
 
-    BlockArt { rows, width: char_w, height: char_h }
+    BlockArt { rows }
 }

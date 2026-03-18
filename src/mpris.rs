@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
-use zbus::{connection, interface, zvariant::Value, zvariant::OwnedValue, SignalContext};
+use zbus::{connection, interface, zvariant::Value, zvariant::OwnedValue};
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 

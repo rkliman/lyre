@@ -61,7 +61,6 @@ pub struct App {
     pub track_list_index: usize,
     pub track_list_offset: usize,
     pub queue_index: usize,
-    pub queue_offset: usize,
     pub active_panel: Panel,
     pub sort_field: SortField,
     pub sort_order: SortOrder,
@@ -106,7 +105,7 @@ impl App {
             sidebar_items: Vec::new(), sidebar_index: 0, sidebar_expanded,
             playlists, music_dir,
             track_list_index: 0, track_list_offset: 0,
-            queue_index: 0, queue_offset: 0,
+            queue_index: 0,
             active_panel: Panel::Sidebar,
             sort_field: SortField::Artist, sort_order: SortOrder::Asc,
             search_mode: false, search_query: String::new(),
@@ -685,7 +684,6 @@ fn wrap_field(s: &str, max: usize) -> Vec<String> {
             if !current.is_empty() {
                 lines.push(current.clone());
                 current.clear();
-                current_w = 0;
             }
             let mut char_buf = String::new();
             let mut char_w = 0usize;
