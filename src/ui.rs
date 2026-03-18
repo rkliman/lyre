@@ -33,13 +33,16 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     // The lyre glyph (𝄞 is a musical symbol — U+1D11E treble clef,
     // but or the lyre emoji reads better in most terminals)
     let left = Line::from(vec![
-        Span::styled(" lyre", Style::default()
+        Span::styled(" ", Style::default()),
+        Span::styled("lyre", Style::default()
             .fg(c.highlight)
             .add_modifier(Modifier::BOLD)),
-        Span::styled(" v0.1.0", Style::default().fg(c.dim)),
-        Span::styled("  ", Style::default()),
-        Span::styled("  ·  ", Style::default().fg(c.dim)),
-        Span::styled("a music library & player. press '?' for help.",
+        Span::styled(" ", Style::default()),
+        Span::styled("v0.1.0", Style::default().fg(c.dim)),
+        Span::styled(" ", Style::default()),
+        Span::styled("─", Style::default().fg(c.dim)),
+        Span::styled(" ", Style::default()),
+        Span::styled("a music player & library manager. press '?' for help.",
             Style::default().fg(c.dim)),
     ]);
 
@@ -47,6 +50,7 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let right = Line::from(vec![
         Span::styled("by ", Style::default().fg(c.dim)),
         Span::styled("@rkliman", Style::default().fg(c.accent)),
+        Span::styled(" ", Style::default()),
     ]);
 
     f.render_widget(
