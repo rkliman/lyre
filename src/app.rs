@@ -186,6 +186,8 @@ impl App {
             KeyCode::Char('s') => self.player.stop(),
             KeyCode::Char('+') | KeyCode::Char('=') => self.player.volume_up(),
             KeyCode::Char('-') => self.player.volume_down(),
+            KeyCode::Char('.') => { let _ = self.player.seek_forward(std::time::Duration::from_secs(5)); }
+            KeyCode::Char(',') => { let _ = self.player.seek_backward(std::time::Duration::from_secs(5)); }
             KeyCode::Char('S') => self.cycle_sort(),
             KeyCode::Char('R') => self.toggle_sort_order(),
             KeyCode::Char('/') => self.enter_search(),

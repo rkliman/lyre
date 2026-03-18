@@ -12,7 +12,8 @@ ratatui = "0.29"
 crossterm = "0.28"
 rusqlite = { version = "0.32", features = ["bundled"] }
 shellexpand = "3"
-rodio = { version = "0.19", features = ["symphonia-all"] }
+rodio = { version = "0.19", default-features = false }
+symphonia = { version = "0.5.4", features = ["all"] }
 serde = { version = "1", features = ["derive"] }
 config = "0.14"
 fuzzy-matcher = "0.3"

@@ -663,6 +663,7 @@ fn render_help(f: &mut Frame, area: Rect) {
             ("p",                "Previous track in queue"),
             ("s",                "Stop"),
             ("+ / -",            "Volume up / down"),
+            (". / ,",            "Seek forward / backward (5 seconds)"),
         ]),
         ("Queue", vec![
             ("a",       "Add selected track to queue"),
