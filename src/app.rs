@@ -245,6 +245,10 @@ pub struct App {
     pub mpris_art_url: Option<String>,
     pub overlay: Overlay,
     pub show_help: bool,
+    pub lyrics_visible: bool,
+    pub lyrics_content: Option<String>,
+    pub lyrics_scroll: usize,
+    pub lyrics_track_path: Option<String>,
 }
 
 impl App {
@@ -290,6 +294,10 @@ impl App {
             mpris_art_url: None,
             overlay: Overlay::None,
             show_help: false,
+            lyrics_visible: false,
+            lyrics_content: None,
+            lyrics_scroll: 0,
+            lyrics_track_path: None,
         };
         app.rebuild_sidebar();
         app.apply_sort();
@@ -337,6 +345,14 @@ impl App {
             let _ = self.player.next();
             self.refresh_album_art(10, 3);
         }
+
+        // Auto-reload lyrics when track changes
+        if self.lyrics_visible {
+            let current_track_path = self.player.current_track.as_ref().map(|t| t.path.clone());
+            if current_track_path != self.lyrics_track_path {
+                self.load_lyrics();
+            }
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
@@ -352,6 +368,7 @@ impl App {
             KeyCode::Char('1') => self.active_panel = Panel::Sidebar,
             KeyCode::Char('2') => self.active_panel = Panel::TrackList,
             KeyCode::Char('3') => self.active_panel = Panel::Queue,
+            KeyCode::Char('4') | KeyCode::Char('L') => self.toggle_lyrics_panel(),
             KeyCode::Char(' ') => {
                 if self.player.state == PlayerState::Stopped { self.play_selected(); }
                 else { self.player.toggle_pause(); }
@@ -378,6 +395,7 @@ impl App {
             Panel::Sidebar   => self.handle_sidebar_key(key),
             Panel::TrackList => self.handle_tracklist_key(key),
             Panel::Queue     => self.handle_queue_key(key),
+            Panel::Lyrics    => self.handle_lyrics_key(key),
         }
     }
 
@@ -491,6 +509,20 @@ impl App {
                 self.mpris_art_url = None;
             }
             KeyCode::Left | KeyCode::Char('h') => { self.active_panel = Panel::TrackList; }
+            _ => {}
+        }
+    }
+
+    fn handle_lyrics_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Up   | KeyCode::Char('k') => { self.lyrics_scroll = self.lyrics_scroll.saturating_sub(1); }
+            KeyCode::Down | KeyCode::Char('j') => { self.lyrics_scroll = self.lyrics_scroll.saturating_add(1); }
+            KeyCode::PageUp   | KeyCode::Char('u') => { self.lyrics_scroll = self.lyrics_scroll.saturating_sub(10); }
+            KeyCode::PageDown | KeyCode::Char('d') => { self.lyrics_scroll = self.lyrics_scroll.saturating_add(10); }
+            KeyCode::Char('g') => { self.lyrics_scroll = 0; }
+            KeyCode::Char('G') => { self.lyrics_scroll = usize::MAX; } // Will be clamped in render
+            KeyCode::Char('r') => { self.load_lyrics(); } // Reload lyrics
+            KeyCode::Left | KeyCode::Char('h') => { self.active_panel = Panel::Queue; }
             _ => {}
         }
     }
@@ -614,6 +646,23 @@ impl App {
         }
     }
 
+    fn load_lyrics(&mut self) {
+        self.lyrics_scroll = 0;
+        self.lyrics_content = match &self.player.current_track {
+            Some(track) => {
+                self.lyrics_track_path = Some(track.path.clone());
+                Some(
+                    crate::art::extract_lyrics(&track.path)
+                        .unwrap_or_else(|| "No lyrics available for this track.".to_string())
+                )
+            },
+            None => {
+                self.lyrics_track_path = None;
+                Some("No track is currently playing.".to_string())
+            },
+        };
+    }
+
     fn add_track_to_playlist(&mut self, playlist_idx: usize, track_path: &str) {
         if playlist_idx >= self.playlists.len() { return; }
         let pl = &mut self.playlists[playlist_idx];
@@ -691,11 +740,51 @@ impl App {
     }
 
     fn cycle_panel_forward(&mut self) {
-        self.active_panel = match self.active_panel { Panel::Sidebar => Panel::TrackList, Panel::TrackList => Panel::Queue, Panel::Queue => Panel::Sidebar };
+        self.active_panel = match self.active_panel {
+            Panel::Sidebar => Panel::TrackList,
+            Panel::TrackList => Panel::Queue,
+            Panel::Queue => {
+                if self.lyrics_visible {
+                    self.load_lyrics();
+                    Panel::Lyrics
+                } else {
+                    Panel::Sidebar
+                }
+            },
+            Panel::Lyrics => Panel::Sidebar,
+        };
     }
 
     fn cycle_panel_backward(&mut self) {
-        self.active_panel = match self.active_panel { Panel::Sidebar => Panel::Queue, Panel::TrackList => Panel::Sidebar, Panel::Queue => Panel::TrackList };
+        self.active_panel = match self.active_panel {
+            Panel::Sidebar => {
+                if self.lyrics_visible {
+                    self.load_lyrics();
+                    Panel::Lyrics
+                } else {
+                    Panel::Queue
+                }
+            },
+            Panel::TrackList => Panel::Sidebar,
+            Panel::Queue => Panel::TrackList,
+            Panel::Lyrics => Panel::Queue,
+        };
+    }
+
+    fn toggle_lyrics_panel(&mut self) {
+        if self.lyrics_visible {
+            // Hide lyrics panel
+            self.lyrics_visible = false;
+            // If currently on lyrics panel, switch to queue
+            if self.active_panel == Panel::Lyrics {
+                self.active_panel = Panel::Queue;
+            }
+        } else {
+            // Show lyrics panel
+            self.lyrics_visible = true;
+            self.load_lyrics();
+            self.active_panel = Panel::Lyrics;
+        }
     }
 
     fn enter_search(&mut self) {

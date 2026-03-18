@@ -80,21 +80,39 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let body_area   = root[1];
     let player_area = root[2];
 
-    // ── Body: sidebar | tracklist | queue ─────────────────────────────────────
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(20),  // sidebar
-            Constraint::Min(10),         // track list
-            Constraint::Percentage(28),  // queue
-        ])
-        .split(body_area);
-
+    // ── Body: sidebar | tracklist | queue | lyrics (optional) ────────────────
     render_banner(f, banner_area, app);
-    render_sidebar(f, app, body[0]);
-    render_tracklist(f, app, body[1]);
-    render_queue(f, app, body[2]);
     render_player(f, app, player_area);
+
+    if app.lyrics_visible {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(20),  // sidebar
+                Constraint::Min(10),         // track list
+                Constraint::Percentage(28),  // queue
+                Constraint::Percentage(28),  // lyrics
+            ])
+            .split(body_area);
+
+        render_sidebar(f, app, body[0]);
+        render_tracklist(f, app, body[1]);
+        render_queue(f, app, body[2]);
+        render_lyrics(f, app, body[3]);
+    } else {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(20),  // sidebar
+                Constraint::Min(10),         // track list
+                Constraint::Percentage(28),  // queue
+            ])
+            .split(body_area);
+
+        render_sidebar(f, app, body[0]);
+        render_tracklist(f, app, body[1]);
+        render_queue(f, app, body[2]);
+    }
 
     if app.show_help {
         render_help(f, area, app);
@@ -625,8 +643,8 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
-    let w = 66u16.min(area.width);
-    let h = 36u16.min(area.height);
+    let w = 120u16.min(area.width);
+    let h = 30u16.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let popup = Rect { x, y, width: w, height: h };
@@ -643,68 +661,103 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let lines: Vec<(&str, Vec<(&str, &str)>)> = vec![
+    // Split into two columns
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner);
+
+    // Left column sections
+    let left_sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
         ("Navigation", vec![
             ("Tab / Shift-Tab",       "Cycle panels"),
-            ("1 / 2 / 3",             "Jump to sidebar / tracks / queue"),
+            ("1 / 2 / 3",             "Jump to sidebar/tracks/queue"),
             ("j / k  or  ↑ / ↓",     "Move up / down"),
             ("g / G",                 "Go to top / bottom"),
-            ("u / d  or  PgUp/PgDn", "Page up / down (all panels)"),
+            ("u / d  or  PgUp/PgDn", "Page up / down"),
             ("h / l  or  ← / →",     "Switch panels"),
-            ("→ / l  on section header", "Expand  (or focus tracks if open)"),
-            ("← / h  on section header", "Collapse"),
+            ("→ / l on header",      "Expand"),
+            ("← / h on header",      "Collapse"),
         ]),
         ("Playback", vec![
-            ("Enter  or  Space", "Play selected / toggle pause"),
-            ("n",                "Next track in queue"),
-            ("p",                "Previous track in queue"),
-            ("s",                "Stop"),
-            ("+ / -",            "Volume up / down"),
-            (". / ,",            "Seek forward / backward (5 seconds)"),
+            ("Enter / Space", "Play / toggle pause"),
+            ("n",             "Next track"),
+            ("p",             "Previous track"),
+            ("s",             "Stop"),
+            ("+ / -",         "Volume up / down"),
+            (". / ,",         "Seek forward / backward (5s)"),
         ]),
+        ("Lyrics", vec![
+            ("4  or  L", "Toggle lyrics panel"),
+            ("r",        "Reload lyrics"),
+        ]),
+    ];
+
+    // Right column sections
+    let right_sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
         ("Queue", vec![
-            ("a",       "Add selected track to queue"),
-            ("A",       "Add all visible tracks to queue"),
-            ("x / Del", "Remove selected from queue"),
-            ("c",       "Clear entire queue"),
+            ("a",       "Add selected to queue"),
+            ("A",       "Add all visible to queue"),
+            ("x / Del", "Remove from queue"),
+            ("c",       "Clear queue"),
         ]),
         ("Library", vec![
-            ("S",   "Cycle sort field (title→artist→album→year→genre→dur)"),
-            ("R",   "Toggle sort order (asc / desc)"),
-            ("/",   "Activate search bar (always visible above track list)"),
-            ("Esc", "Deactivate search bar  (results stay if query non-empty)"),
+            ("S",   "Cycle sort field"),
+            ("R",   "Toggle sort order"),
+            ("/",   "Activate search"),
+            ("Esc", "Deactivate search"),
         ]),
         ("Playlists", vec![
-            ("N  on Playlists header", "Create a new empty playlist"),
-            ("P  on any track",        "Add track to an existing playlist"),
-            ("x / Del  in playlist",   "Remove track from playlist (saves immediately)"),
-            ("K  in playlist",         "Move selected track up"),
-            ("J  in playlist",         "Move selected track down"),
+            ("N on header",    "Create playlist"),
+            ("P on track",     "Add to playlist"),
+            ("x / Del",        "Remove from playlist"),
+            ("K / J",          "Move track up / down"),
         ]),
         ("Other", vec![
-            ("?", "Toggle this help overlay"),
+            ("?", "Toggle help"),
             ("q", "Quit"),
         ]),
     ];
 
-    let mut text_lines: Vec<Line> = Vec::new();
-    for (section, keys) in &lines {
-        text_lines.push(Line::from(Span::styled(
+    // Render left column
+    let mut left_lines: Vec<Line> = Vec::new();
+    for (section, keys) in &left_sections {
+        left_lines.push(Line::from(Span::styled(
             *section,
             Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         )));
         for (key, desc) in keys {
-            text_lines.push(Line::from(vec![
-                Span::styled(format!("  {:28}", key), Style::default().fg(c.foreground)),
+            left_lines.push(Line::from(vec![
+                Span::styled(format!("  {:18}", key), Style::default().fg(c.foreground)),
                 Span::styled(*desc, Style::default().fg(c.dim)),
             ]));
         }
-        text_lines.push(Line::from(""));
+        left_lines.push(Line::from(""));
     }
 
-    let para = Paragraph::new(text_lines)
+    let left_para = Paragraph::new(left_lines)
         .style(Style::default().bg(Color::Rgb(22, 18, 14)));
-    f.render_widget(para, inner);
+    f.render_widget(left_para, columns[0]);
+
+    // Render right column
+    let mut right_lines: Vec<Line> = Vec::new();
+    for (section, keys) in &right_sections {
+        right_lines.push(Line::from(Span::styled(
+            *section,
+            Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
+        )));
+        for (key, desc) in keys {
+            right_lines.push(Line::from(vec![
+                Span::styled(format!("  {:18}", key), Style::default().fg(c.foreground)),
+                Span::styled(*desc, Style::default().fg(c.dim)),
+            ]));
+        }
+        right_lines.push(Line::from(""));
+    }
+
+    let right_para = Paragraph::new(right_lines)
+        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+    f.render_widget(right_para, columns[1]);
 }
 
 fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
@@ -794,6 +847,47 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
             .alignment(Alignment::Center),
         rows[1],
     );
+}
+
+fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
+    let c = &app.colors;
+    let active = app.active_panel == Panel::Lyrics;
+
+    let block = panel_block("Lyrics [4]", active, app);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let lyrics_text = app.lyrics_content.as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or("");
+
+    if lyrics_text.is_empty() {
+        let placeholder = Paragraph::new("Press '4' or Tab to view lyrics for the current track")
+            .style(Style::default().fg(c.dim))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+        f.render_widget(placeholder, inner);
+        return;
+    }
+
+    // Split lyrics into lines and apply scrolling
+    let lines: Vec<&str> = lyrics_text.lines().collect();
+    let visible_height = inner.height as usize;
+    let max_scroll = lines.len().saturating_sub(visible_height);
+    let scroll_offset = app.lyrics_scroll.min(max_scroll);
+
+    let visible_lines: Vec<Line> = lines
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_height)
+        .map(|line| Line::from(Span::styled(*line, Style::default().fg(c.foreground))))
+        .collect();
+
+    let paragraph = Paragraph::new(visible_lines)
+        .wrap(Wrap { trim: false })
+        .style(Style::default().bg(c.background));
+
+    f.render_widget(paragraph, inner);
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

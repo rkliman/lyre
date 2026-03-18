@@ -53,6 +53,20 @@ pub fn extract_cover_bytes(path: &str) -> Option<Vec<u8>> {
     Some(pic.data().to_vec())
 }
 
+/// Extract lyrics from the file at `path`.
+/// Looks for unsynchronized lyrics in various tag formats.
+pub fn extract_lyrics(path: &str) -> Option<String> {
+    use lofty::prelude::*;
+
+    let tagged = lofty::read_from_path(path).ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+
+    // Try to get lyrics from common tag keys
+    // Different formats use different keys: LYRICS, UNSYNCEDLYRICS, etc.
+    tag.get_string(&ItemKey::Lyrics)
+        .map(|s| s.to_string())
+}
+
 /// Extract cover art from `path` and write it to a temp file.
 /// Returns a `file://` URI suitable for `mpris:artUrl`, or `None` if
 /// the track has no embedded art.

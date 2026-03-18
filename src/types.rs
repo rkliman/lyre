@@ -101,6 +101,7 @@ pub enum Panel {
     Sidebar,
     TrackList,
     Queue,
+    Lyrics,
 }
 
 #[derive(Debug, Clone, PartialEq)]
