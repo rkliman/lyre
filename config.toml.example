@@ -1,0 +1,25 @@
+# Lyre Configuration File Example
+# Copy this to ~/.config/lyre/config.toml and customize as needed
+# All settings are optional - if not specified, sensible defaults will be used
+
+[files]
+# Path to the music database
+database_name = "~/.local/share/lyre/music.db"
+
+# Path to your music directory
+music_directory = "~/Music"
+
+# Base path for temporary album art files (extension will be added automatically)
+temp_cover_path = "/tmp/lyre-cover"
+
+[ui.colors]
+# Color scheme - specify as hex "#RRGGBB" or comma-separated "R, G, B"
+foreground = "#dcd7cd"      # Main text color
+background = "#12100e"      # Background color
+accent = "#d6a362"          # Primary accent color (borders, highlights)
+accent2 = "#b27844"         # Secondary accent color (dimmer highlights)
+dim = "#645c50"             # Dimmed/muted text color
+highlight = "#f0c378"       # Bright highlight color (selected items when active)
+playing = "#82c88c"         # Playing indicator color
+header_bg = "#1e1a16"       # Header background color
+selection_bg = "#2d261c"    # Selection background color

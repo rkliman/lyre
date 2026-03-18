@@ -12,23 +12,13 @@ use crate::app::App;
 use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
 use crate::types::format_duration;
 
-// ── Colour palette ────────────────────────────────────────────────────────────
-const FG: Color = Color::Rgb(220, 215, 205);       // warm off-white
-const BG: Color = Color::Rgb(18, 16, 14);          // near-black
-const ACCENT: Color = Color::Rgb(214, 163, 98);    // warm gold
-const ACCENT2: Color = Color::Rgb(178, 120, 68);   // darker gold
-const DIM: Color = Color::Rgb(100, 92, 80);        // muted
-const HIGHLIGHT: Color = Color::Rgb(240, 195, 120);// bright gold highlight
-const PLAYING: Color = Color::Rgb(130, 200, 140);  // soft green for playing indicator
-const HEADER_BG: Color = Color::Rgb(30, 26, 22);   // slightly lighter bg for headers
-const SEL_BG: Color = Color::Rgb(45, 38, 28);      // selection background
-
-fn render_banner(f: &mut Frame, area: Rect) {
+fn render_banner(f: &mut Frame, area: Rect, app: &App) {
+    let c = &app.colors;
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT2))
-        .style(Style::default().bg(BG));
+        .border_style(Style::default().fg(c.accent2))
+        .style(Style::default().bg(c.background));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -44,30 +34,31 @@ fn render_banner(f: &mut Frame, area: Rect) {
     // but or the lyre emoji reads better in most terminals)
     let left = Line::from(vec![
         Span::styled(" lyre", Style::default()
-            .fg(HIGHLIGHT)
+            .fg(c.highlight)
             .add_modifier(Modifier::BOLD)),
         Span::styled("  ", Style::default()),
-        Span::styled("─── ", Style::default().fg(DIM)),
+        Span::styled("─── ", Style::default().fg(c.dim)),
         Span::styled("a music library & player. press '?' for help.",
-            Style::default().fg(DIM)),
+            Style::default().fg(c.dim)),
     ]);
 
     // ── Right: author + version ───────────────────────────────────────────────
     let right = Line::from(vec![
-        Span::styled("Randall Kliman", Style::default().fg(ACCENT)),
-        Span::styled("  ·  ", Style::default().fg(DIM)),
-        Span::styled("v0.1.0", Style::default().fg(DIM)),
+        Span::styled("by ", Style::default().fg(c.dim)),
+        Span::styled("@rkliman", Style::default().fg(c.accent)),
+        Span::styled("  ·  ", Style::default().fg(c.dim)),
+        Span::styled("v0.1.0", Style::default().fg(c.dim)),
         Span::styled("  ", Style::default()),
     ]);
 
     f.render_widget(
-        Paragraph::new(left).style(Style::default().bg(BG)),
+        Paragraph::new(left).style(Style::default().bg(c.background)),
         cols[0],
     );
     f.render_widget(
         Paragraph::new(right)
             .alignment(Alignment::Right)
-            .style(Style::default().bg(BG)),
+            .style(Style::default().bg(c.background)),
         cols[1],
     );
 }
@@ -99,47 +90,49 @@ pub fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(body_area);
 
-    render_banner(f, banner_area);
+    render_banner(f, banner_area, app);
     render_sidebar(f, app, body[0]);
     render_tracklist(f, app, body[1]);
     render_queue(f, app, body[2]);
     render_player(f, app, player_area);
 
     if app.show_help {
-        render_help(f, area);
+        render_help(f, area, app);
     }
 
     // Overlays render on top of everything
     match &app.overlay {
-        Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, name),
+        Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, app, name),
         Overlay::AddToPlaylist { selected, .. } => render_add_to_playlist_overlay(f, area, app, *selected),
         Overlay::None => {}
     }
 }
 
-fn panel_block<'a>(title: &'a str, active: bool) -> Block<'a> {
+fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {
+    let c = &app.colors;
     let border_style = if active {
-        Style::default().fg(ACCENT)
+        Style::default().fg(c.accent)
     } else {
-        Style::default().fg(DIM)
+        Style::default().fg(c.dim)
     };
 
     Block::default()
         .title(Span::styled(
             format!(" {} ", title),
             Style::default()
-                .fg(if active { HIGHLIGHT } else { DIM })
+                .fg(if active { c.highlight } else { c.dim })
                 .add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .style(Style::default().bg(BG))
+        .style(Style::default().bg(c.background))
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let c = &app.colors;
     let active = app.active_panel == Panel::Sidebar;
-    let block = panel_block("Library [1]", active);
+    let block = panel_block("Library [1]", active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -151,13 +144,13 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.sidebar_index;
 
             let style = if item.is_header() {
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+                Style::default().fg(c.accent).add_modifier(Modifier::BOLD)
             } else if is_selected && active {
-                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+                Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default().fg(ACCENT2).bg(SEL_BG)
+                Style::default().fg(c.accent2).bg(c.selection_bg)
             } else {
-                Style::default().fg(FG)
+                Style::default().fg(c.foreground)
             };
 
             // For headers, prepend an expand/collapse chevron
@@ -184,13 +177,14 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.sidebar_index));
 
     let list = List::new(items)
-        .style(Style::default().bg(BG))
-        .highlight_style(Style::default().bg(SEL_BG));
+        .style(Style::default().bg(c.background))
+        .highlight_style(Style::default().bg(c.selection_bg));
 
     f.render_stateful_widget(list, inner, &mut state);
 }
 
 fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
+    let c = app.colors.clone();
     let active = app.active_panel == Panel::TrackList;
 
     // Build title — show playlist name or sort info
@@ -206,7 +200,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
             )
         }
     };
-    let block = panel_block(&title_str, active)
+    let block = panel_block(&title_str, active, app)
         .title_alignment(Alignment::Left);
 
     let inner = block.inner(area);
@@ -230,8 +224,8 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let search_active = app.search_mode;
     let has_query     = !app.search_query.is_empty();
 
-    let box_bg             = if search_active { Color::Rgb(22, 19, 15) } else { BG };
-    let box_border_color   = if search_active { ACCENT } else if has_query { ACCENT2 } else { DIM };
+    let box_bg             = if search_active { Color::Rgb(22, 19, 15) } else { c.background };
+    let box_border_color   = if search_active { c.accent } else if has_query { c.accent2 } else { c.dim };
 
     let result_hint = if has_query {
         format!("  {} result{}", app.filtered_tracks.len(), if app.filtered_tracks.len() == 1 { "" } else { "s" })
@@ -240,11 +234,11 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let box_title = if search_active {
-        Span::styled(" search ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD))
+        Span::styled(" search ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD))
     } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), Style::default().fg(ACCENT))
+        Span::styled(format!(" search{} ", result_hint), Style::default().fg(c.accent))
     } else {
-        Span::styled(" search ", Style::default().fg(DIM))
+        Span::styled(" search ", Style::default().fg(c.dim))
     };
 
     let search_block = Block::default()
@@ -261,19 +255,19 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(vec![
             Span::styled(
                 app.search_query.clone(),
-                Style::default().fg(HIGHLIGHT).bg(box_bg).add_modifier(Modifier::BOLD),
+                Style::default().fg(c.highlight).bg(box_bg).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("█", Style::default().fg(ACCENT).bg(box_bg)),
+            Span::styled("█", Style::default().fg(c.accent).bg(box_bg)),
         ])
     } else if has_query {
         Line::from(Span::styled(
             app.search_query.clone(),
-            Style::default().fg(ACCENT2).bg(box_bg),
+            Style::default().fg(c.accent2).bg(box_bg),
         ))
     } else {
         Line::from(Span::styled(
             "press / to search…",
-            Style::default().fg(DIM).bg(box_bg),
+            Style::default().fg(c.dim).bg(box_bg),
         ))
     };
 
@@ -296,7 +290,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         tw = title_w, aw = artist_w, bw = album_w, gw = genre_w
     );
     let header_widget = Paragraph::new(header)
-        .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD).bg(HEADER_BG));
+        .style(Style::default().fg(c.accent).add_modifier(Modifier::BOLD).bg(c.header_bg));
     f.render_widget(header_widget, header_area);
 
     // ── Variable-height track rows ────────────────────────────────────────────
@@ -346,11 +340,11 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         let is_selected = i == app.track_list_index;
         let is_playing  = playing_path.as_deref() == Some(&track.path);
 
-        let row_bg = if is_selected { SEL_BG } else { BG };
-        let fg = if is_selected && active { HIGHLIGHT }
-                 else if is_selected      { ACCENT2 }
-                 else if is_playing       { PLAYING }
-                 else                     { FG };
+        let row_bg = if is_selected { c.selection_bg } else { c.background };
+        let fg = if is_selected && active { c.highlight }
+                 else if is_selected      { c.accent2 }
+                 else if is_playing       { c.playing }
+                 else                     { c.foreground };
         let bold = is_selected && active;
 
         let play_icon = if is_playing {
@@ -372,7 +366,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
             let (line_fg, line_bold) = if row_idx == 0 {
                 (fg, bold)
             } else {
-                let cfg = if is_selected && active { ACCENT } else { DIM };
+                let cfg = if is_selected && active { c.accent } else { c.dim };
                 (cfg, false)
             };
 
@@ -397,7 +391,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     // Fill remaining space
     while y < bottom {
         f.render_widget(
-            Paragraph::new("").style(Style::default().bg(BG)),
+            Paragraph::new("").style(Style::default().bg(c.background)),
             Rect { x: list_area.x, y, width: list_area.width, height: 1 },
         );
         y += 1;
@@ -406,22 +400,23 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     // Count indicator
     f.render_widget(
         Paragraph::new(format!(" {}/{} ", app.track_list_index + 1, app.filtered_tracks.len()))
-            .style(Style::default().fg(DIM))
+            .style(Style::default().fg(c.dim))
             .alignment(Alignment::Right),
         Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
     );
 }
 
 fn render_queue(f: &mut Frame, app: &App, area: Rect) {
+    let c = &app.colors;
     let active = app.active_panel == Panel::Queue;
     let title = format!("Queue [3] ({} tracks)", app.player.queue.len());
-    let block = panel_block(&title, active);
+    let block = panel_block(&title, active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     if app.player.queue.is_empty() {
         let empty = Paragraph::new("No tracks in queue\n\nPress [a] on a track\nor [A] to add all")
-            .style(Style::default().fg(DIM))
+            .style(Style::default().fg(c.dim))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
         f.render_widget(empty, inner);
@@ -453,13 +448,13 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             let line = format!("{}{}", icon, title_str);
 
             let style = if is_selected && active {
-                Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+                Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default().fg(ACCENT2).bg(SEL_BG)
+                Style::default().fg(c.accent2).bg(c.selection_bg)
             } else if is_playing {
-                Style::default().fg(PLAYING).add_modifier(Modifier::BOLD)
+                Style::default().fg(c.playing).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(FG)
+                Style::default().fg(c.foreground)
             };
 
             ListItem::new(Line::from(Span::styled(line, style)))
@@ -470,19 +465,21 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.queue_index));
 
     let list = List::new(items)
-        .style(Style::default().bg(BG))
-        .highlight_style(Style::default().bg(SEL_BG));
+        .style(Style::default().bg(c.background))
+        .highlight_style(Style::default().bg(c.selection_bg));
 
     f.render_stateful_widget(list, inner, &mut state);
 }
 
 fn render_player(f: &mut Frame, app: &App, area: Rect) {
+    let c = &app.colors;
+
     // Outer block
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT2))
-        .style(Style::default().bg(BG));
+        .border_style(Style::default().fg(c.accent2))
+        .style(Style::default().bg(c.background));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -522,7 +519,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
                 height: 1,
             };
             f.render_widget(
-                Paragraph::new(row.clone()).style(Style::default().bg(BG)),
+                Paragraph::new(row.clone()).style(Style::default().bg(c.background)),
                 row_rect,
             );
         }
@@ -546,16 +543,16 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         };
 
         let title_line = Line::from(vec![
-            Span::styled(format!("{} ", state_icon), Style::default().fg(PLAYING)),
+            Span::styled(format!("{} ", state_icon), Style::default().fg(c.playing)),
             Span::styled(
                 truncate(track.display_title(), cols[1].width as usize - 4),
-                Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD),
+                Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
             ),
         ]);
 
         let artist_line = Line::from(Span::styled(
             format!("  {} — {}", track.display_artist(), track.display_album()),
-            Style::default().fg(ACCENT),
+            Style::default().fg(c.accent),
         ));
 
         let meta_line = Line::from(Span::styled(
@@ -569,7 +566,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
                 },
                 app.player.volume * 100.0
             ),
-            Style::default().fg(DIM),
+            Style::default().fg(c.dim),
         ));
 
         f.render_widget(Paragraph::new(title_line), left_rows[0]);
@@ -577,11 +574,11 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(Paragraph::new(meta_line), left_rows[2]);
     } else {
         let idle = Paragraph::new("■ lyre — no track playing")
-            .style(Style::default().fg(DIM));
+            .style(Style::default().fg(c.dim));
         f.render_widget(idle, left_rows[0]);
 
         let hint = Paragraph::new("  Press [Enter] to play · [?] for help")
-            .style(Style::default().fg(DIM));
+            .style(Style::default().fg(c.dim));
         f.render_widget(hint, left_rows[1]);
     }
 
@@ -600,24 +597,24 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     let progress = app.player.progress();
 
     let time_line = Line::from(vec![
-        Span::styled(format_duration(elapsed), Style::default().fg(FG)),
-        Span::styled(" / ", Style::default().fg(DIM)),
-        Span::styled(format_duration(total), Style::default().fg(DIM)),
+        Span::styled(format_duration(elapsed), Style::default().fg(c.foreground)),
+        Span::styled(" / ", Style::default().fg(c.dim)),
+        Span::styled(format_duration(total), Style::default().fg(c.dim)),
     ]);
     f.render_widget(Paragraph::new(time_line).alignment(Alignment::Center), right_rows[0]);
 
     let gauge = Gauge::default()
-        .gauge_style(Style::default().fg(ACCENT).bg(Color::Rgb(40, 35, 28)))
+        .gauge_style(Style::default().fg(c.accent).bg(Color::Rgb(40, 35, 28)))
         .ratio(progress)
         .label("");
     f.render_widget(gauge, right_rows[1]);
 
     let status = if let Some(msg) = &app.status_message {
-        Span::styled(truncate(msg, cols[2].width as usize), Style::default().fg(DIM))
+        Span::styled(truncate(msg, cols[2].width as usize), Style::default().fg(c.dim))
     } else {
         Span::styled(
             "spc:play/pause  n:next  p:prev  s:stop  S:sort  /:search",
-            Style::default().fg(DIM),
+            Style::default().fg(c.dim),
         )
     };
     f.render_widget(
@@ -626,7 +623,8 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn render_help(f: &mut Frame, area: Rect) {
+fn render_help(f: &mut Frame, area: Rect, app: &App) {
+    let c = &app.colors;
     let w = 66u16.min(area.width);
     let h = 36u16.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
@@ -636,10 +634,10 @@ fn render_help(f: &mut Frame, area: Rect) {
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" ♫ Lyre — Keybindings ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(" ♫ Lyre — Keybindings ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(c.accent))
         .style(Style::default().bg(Color::Rgb(22, 18, 14)));
 
     let inner = block.inner(popup);
@@ -693,12 +691,12 @@ fn render_help(f: &mut Frame, area: Rect) {
     for (section, keys) in &lines {
         text_lines.push(Line::from(Span::styled(
             *section,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         )));
         for (key, desc) in keys {
             text_lines.push(Line::from(vec![
-                Span::styled(format!("  {:28}", key), Style::default().fg(FG)),
-                Span::styled(*desc, Style::default().fg(DIM)),
+                Span::styled(format!("  {:28}", key), Style::default().fg(c.foreground)),
+                Span::styled(*desc, Style::default().fg(c.dim)),
             ]));
         }
         text_lines.push(Line::from(""));
@@ -709,7 +707,8 @@ fn render_help(f: &mut Frame, area: Rect) {
     f.render_widget(para, inner);
 }
 
-fn render_new_playlist_overlay(f: &mut Frame, area: Rect, name: &str) {
+fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
+    let c = &app.colors;
     let w = 50u16.min(area.width);
     let h = 5u16;
     let x = area.x + (area.width.saturating_sub(w)) / 2;
@@ -719,10 +718,10 @@ fn render_new_playlist_overlay(f: &mut Frame, area: Rect, name: &str) {
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" New Playlist ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(" New Playlist ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(c.accent))
         .style(Style::default().bg(Color::Rgb(22, 18, 14)));
 
     let inner = block.inner(popup);
@@ -734,23 +733,24 @@ fn render_new_playlist_overlay(f: &mut Frame, area: Rect, name: &str) {
         .split(inner);
 
     f.render_widget(
-        Paragraph::new(Span::styled("Playlist name:", Style::default().fg(DIM))),
+        Paragraph::new(Span::styled("Playlist name:", Style::default().fg(c.dim))),
         rows[0],
     );
     f.render_widget(
         Paragraph::new(Span::styled(
             format!("{}█", name),
-            Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD),
+            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
         )),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(Span::styled("Enter to confirm · Esc to cancel", Style::default().fg(DIM))),
+        Paragraph::new(Span::styled("Enter to confirm · Esc to cancel", Style::default().fg(c.dim))),
         rows[2],
     );
 }
 
 fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected: usize) {
+    let c = &app.colors;
     let w = 50u16.min(area.width);
     let h = (app.playlists.len() as u16 + 4).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
@@ -760,10 +760,10 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" Add to Playlist ", Style::default().fg(HIGHLIGHT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(" Add to Playlist ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(c.accent))
         .style(Style::default().bg(Color::Rgb(22, 18, 14)));
 
     let inner = block.inner(popup);
@@ -776,9 +776,9 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
 
     let items: Vec<ListItem> = app.playlists.iter().enumerate().map(|(i, pl)| {
         let style = if i == selected {
-            Style::default().fg(HIGHLIGHT).bg(SEL_BG).add_modifier(Modifier::BOLD)
+            Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(FG)
+            Style::default().fg(c.foreground)
         };
         let icon = if i == selected { "▶ " } else { "  " };
         ListItem::new(Line::from(Span::styled(format!("{}{}", icon, pl.name), style)))
@@ -790,7 +790,7 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
     f.render_stateful_widget(list, rows[0], &mut state);
 
     f.render_widget(
-        Paragraph::new(Span::styled("Enter to add · Esc to cancel", Style::default().fg(DIM)))
+        Paragraph::new(Span::styled("Enter to add · Esc to cancel", Style::default().fg(c.dim)))
             .alignment(Alignment::Center),
         rows[1],
     );

@@ -12,35 +12,206 @@ use crate::db::Db;
 use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::types::{Overlay, Panel, PlayerState, SidebarItem, SortField, SortOrder, Track, TrackContext};
+use ratatui::style::Color;
+use std::fs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct FilesConfig {
+    #[serde(default = "default_database_name")]
     database_name: String,
-    music_directory: Option<String>,
+    #[serde(default = "default_music_directory")]
+    music_directory: String,
+    #[serde(default = "default_temp_cover_path")]
+    temp_cover_path: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct Settings {
+#[derive(Debug, Deserialize, Clone)]
+struct UiColorsConfig {
+    #[serde(default = "default_foreground")]
+    foreground: String,
+    #[serde(default = "default_background")]
+    background: String,
+    #[serde(default = "default_accent")]
+    accent: String,
+    #[serde(default = "default_accent2")]
+    accent2: String,
+    #[serde(default = "default_dim")]
+    dim: String,
+    #[serde(default = "default_highlight")]
+    highlight: String,
+    #[serde(default = "default_playing")]
+    playing: String,
+    #[serde(default = "default_header_bg")]
+    header_bg: String,
+    #[serde(default = "default_selection_bg")]
+    selection_bg: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct UiConfig {
+    #[serde(default)]
+    colors: UiColorsConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    #[serde(default)]
     files: FilesConfig,
+    #[serde(default)]
+    ui: UiConfig,
 }
 
-fn load_config() -> (String, String) {
-    let config_path =
-        shellexpand::tilde("~/.config/apollo-music/config.toml").to_string();
-    if let Ok(cfg) = config::Config::builder()
-        .add_source(config::File::with_name(&config_path))
-        .build()
-    {
-        if let Ok(settings) = cfg.try_deserialize::<Settings>() {
-            let db = settings.files.database_name;
-            let music = settings.files.music_directory.unwrap_or_else(|| "~/Music".to_string());
-            return (db, music);
+// Default functions for FilesConfig
+fn default_database_name() -> String { "~/.local/share/lyre/music.db".to_string() }
+fn default_music_directory() -> String { "~/Music".to_string() }
+fn default_temp_cover_path() -> String { "/tmp/lyre-cover".to_string() }
+
+// Default functions for UiColorsConfig
+fn default_foreground() -> String { "#dcd7cd".to_string() }
+fn default_background() -> String { "#12100e".to_string() }
+fn default_accent() -> String { "#d6a362".to_string() }
+fn default_accent2() -> String { "#b27844".to_string() }
+fn default_dim() -> String { "#645c50".to_string() }
+fn default_highlight() -> String { "#f0c378".to_string() }
+fn default_playing() -> String { "#82c88c".to_string() }
+fn default_header_bg() -> String { "#1e1a16".to_string() }
+fn default_selection_bg() -> String { "#2d261c".to_string() }
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            database_name: default_database_name(),
+            music_directory: default_music_directory(),
+            temp_cover_path: default_temp_cover_path(),
         }
     }
-    ("~/.local/share/apollo-music/music.db".to_string(), "~/Music".to_string())
+}
+
+impl Default for UiColorsConfig {
+    fn default() -> Self {
+        Self {
+            foreground: default_foreground(),
+            background: default_background(),
+            accent: default_accent(),
+            accent2: default_accent2(),
+            dim: default_dim(),
+            highlight: default_highlight(),
+            playing: default_playing(),
+            header_bg: default_header_bg(),
+            selection_bg: default_selection_bg(),
+        }
+    }
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            colors: UiColorsConfig::default(),
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            files: FilesConfig::default(),
+            ui: UiConfig::default(),
+        }
+    }
+}
+
+fn load_config() -> Config {
+    let config_path_str = shellexpand::tilde("~/.config/lyre/config.toml").to_string();
+    let config_path = Path::new(&config_path_str);
+
+    // Create default config if it doesn't exist
+    if !config_path.exists() {
+        // Create parent directory if needed
+        if let Some(parent) = config_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        // Write default config file
+        let default_config = include_str!("../config.toml.example");
+        let _ = fs::write(config_path, default_config);
+    }
+
+    if let Ok(cfg) = config::Config::builder()
+        .add_source(config::File::with_name(&config_path_str).required(false))
+        .build()
+    {
+        if let Ok(settings) = cfg.try_deserialize::<Config>() {
+            return settings;
+        }
+    }
+
+    Config::default()
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorScheme {
+    pub foreground: Color,
+    pub background: Color,
+    pub accent: Color,
+    pub accent2: Color,
+    pub dim: Color,
+    pub highlight: Color,
+    pub playing: Color,
+    pub header_bg: Color,
+    pub selection_bg: Color,
+}
+
+fn parse_color(color_str: &str) -> Color {
+    let trimmed = color_str.trim();
+
+    // Try hex format: #RRGGBB
+    if trimmed.starts_with('#') && trimmed.len() == 7 {
+        if let (Ok(r), Ok(g), Ok(b)) = (
+            u8::from_str_radix(&trimmed[1..3], 16),
+            u8::from_str_radix(&trimmed[3..5], 16),
+            u8::from_str_radix(&trimmed[5..7], 16),
+        ) {
+            return Color::Rgb(r, g, b);
+        }
+    }
+
+    // Try comma-separated RGB: "R, G, B"
+    if trimmed.contains(',') {
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        if parts.len() == 3 {
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                parts[0].trim().parse::<u8>(),
+                parts[1].trim().parse::<u8>(),
+                parts[2].trim().parse::<u8>(),
+            ) {
+                return Color::Rgb(r, g, b);
+            }
+        }
+    }
+
+    // Fallback to white
+    Color::Rgb(255, 255, 255)
+}
+
+impl ColorScheme {
+    pub fn from_config(colors: &UiColorsConfig) -> Self {
+        Self {
+            foreground: parse_color(&colors.foreground),
+            background: parse_color(&colors.background),
+            accent: parse_color(&colors.accent),
+            accent2: parse_color(&colors.accent2),
+            dim: parse_color(&colors.dim),
+            highlight: parse_color(&colors.highlight),
+            playing: parse_color(&colors.playing),
+            header_bg: parse_color(&colors.header_bg),
+            selection_bg: parse_color(&colors.selection_bg),
+        }
+    }
 }
 
 pub struct App {
+    pub config: Config,
+    pub colors: ColorScheme,
     pub all_tracks: Vec<Track>,
     pub filtered_tracks: Vec<Track>,
     pub track_context: TrackContext,
@@ -78,8 +249,11 @@ pub struct App {
 
 impl App {
     pub fn new() -> Result<Self> {
-        let (db_path, music_dir_raw) = load_config();
-        let music_dir = shellexpand::tilde(&music_dir_raw).to_string();
+        let config = load_config();
+        let colors = ColorScheme::from_config(&config.ui.colors);
+        let music_dir = shellexpand::tilde(&config.files.music_directory).to_string();
+        let db_path = shellexpand::tilde(&config.files.database_name).to_string();
+
         let db = Db::open(&db_path)?;
         let all_tracks = db.all_tracks().unwrap_or_default();
         let filtered_tracks = all_tracks.clone();
@@ -97,6 +271,8 @@ impl App {
         let player = Player::new().expect("Failed to initialize audio.");
 
         let mut app = Self {
+            config,
+            colors,
             all_tracks, filtered_tracks,
             track_context: TrackContext::Library,
             wrapped_tracks: Vec::new(),
