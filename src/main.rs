@@ -103,17 +103,20 @@ async fn main() -> Result<()> {
                     PlayerState::Stopped => MprisPlaybackStatus::Stopped,
                 };
                 let state = if let Some(ref track) = app.player.current_track {
-                    // Reuse the cached art path if the track hasn't changed
-                    let art_url = app
-                        .album_art_path
-                        .as_deref()
-                        .filter(|p| *p == track.path.as_str())
-                        .and_then(|_| app.mpris_art_url.clone())
-                        .or_else(|| {
-                            let url = crate::art::extract_cover_to_temp_file(&track.path);
-                            app.mpris_art_url = url.clone();
-                            url
-                        });
+                    // Reuse cached MPRIS art URL if available, otherwise generate from cached bytes
+                    let art_url = if app.mpris_art_url.is_some() {
+                        app.mpris_art_url.clone()
+                    } else if let Some(ref bytes) = app.album_art_bytes {
+                        // Use cached bytes to avoid re-extracting from file
+                        let url = crate::art::write_bytes_to_temp_file(bytes);
+                        app.mpris_art_url = url.clone();
+                        url
+                    } else {
+                        // No cached bytes, need to extract (only happens on first load)
+                        let url = crate::art::extract_cover_to_temp_file(&track.path);
+                        app.mpris_art_url = url.clone();
+                        url
+                    };
                     MprisState {
                         status,
                         title: track.display_title().to_string(),

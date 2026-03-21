@@ -72,7 +72,13 @@ pub fn extract_lyrics(path: &str) -> Option<String> {
 /// the track has no embedded art.
 pub fn extract_cover_to_temp_file(track_path: &str) -> Option<String> {
     let bytes = extract_cover_bytes(track_path)?;
+    write_bytes_to_temp_file(&bytes)
+}
 
+/// Write album art bytes to a temp file.
+/// Returns a `file://` URI suitable for `mpris:artUrl`.
+/// This is more efficient than extract_cover_to_temp_file when you already have the bytes cached.
+pub fn write_bytes_to_temp_file(bytes: &[u8]) -> Option<String> {
     // Detect format from magic bytes to pick the right extension
     let ext = if bytes.starts_with(b"\xff\xd8\xff") {
         "jpg"
@@ -83,7 +89,7 @@ pub fn extract_cover_to_temp_file(track_path: &str) -> Option<String> {
     };
 
     let tmp_path = format!("/tmp/lyre-cover.{}", ext);
-    std::fs::write(&tmp_path, &bytes).ok()?;
+    std::fs::write(&tmp_path, bytes).ok()?;
     Some(format!("file://{}", tmp_path))
 }
 /// Load cover art from bytes into a DynamicImage for rendering with terminal graphics.

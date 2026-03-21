@@ -190,13 +190,15 @@ fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
     if art_rect.width > 0 && art_rect.height > 0 {
         if let Some(img) = app.album_art_image.as_ref() {
             // Try to use terminal graphics if available
-            if let Some(picker) = app.image_picker.as_ref() {
+            if let Some(picker) = app.image_picker.as_mut() {
                 // Use cached protocol if dimensions haven't changed, otherwise regenerate
                 let current_dims = (art_rect.width, art_rect.height);
                 if app.cached_art_window_dims != current_dims || app.cached_art_window_protocol.is_none() {
-                    // Dimensions changed or no cache - regenerate protocol
-                    let mut picker_clone = picker.clone();
-                    app.cached_art_window_protocol = Some(picker_clone.new_resize_protocol(img.clone()));
+                    // Dimensions changed or no cache - explicitly drop old protocol and regenerate
+                    // This ensures proper cleanup of terminal graphics resources
+                    app.cached_art_window_protocol = None; // Explicitly drop old protocol
+                    let protocol = picker.new_resize_protocol(img.clone());
+                    app.cached_art_window_protocol = Some(protocol);
                     app.cached_art_window_dims = current_dims;
                 }
 

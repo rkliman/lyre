@@ -299,6 +299,8 @@ pub struct App {
     pub album_art: Option<crate::art::BlockArt>,
     pub album_art_image: Option<DynamicImage>,
     pub album_art_path: Option<String>,
+    // Cache raw album art bytes to avoid re-extracting from file
+    pub album_art_bytes: Option<Vec<u8>>,
     // Cached file:// URI for MPRIS (avoids re-extracting on every tick)
     pub mpris_art_url: Option<String>,
     pub image_picker: Option<Picker>,
@@ -372,6 +374,7 @@ impl App {
             album_art: None,
             album_art_image: None,
             album_art_path: None,
+            album_art_bytes: None,
             mpris_art_url: None,
             image_picker,
             cached_art_window_block: None,
@@ -568,6 +571,7 @@ impl App {
                 self.album_art = None;
                 self.album_art_image = None;
                 self.album_art_path = None;
+                self.album_art_bytes = None;
                 self.mpris_art_url = None;
                 self.cached_art_window_block = None;
                 self.cached_art_window_protocol = None;
@@ -880,6 +884,7 @@ impl App {
                 self.album_art = None;
                 self.album_art_image = None;
                 self.album_art_path = None;
+                self.album_art_bytes = None;
                 self.mpris_art_url = None;
                 self.cached_art_window_block = None;
                 self.cached_art_window_protocol = None;
@@ -1449,6 +1454,7 @@ impl App {
                 self.album_art = None;
                 self.album_art_image = None;
                 self.album_art_path = None;
+                self.album_art_bytes = None;
                 self.mpris_art_url = None;
                 self.cached_art_window_block = None;
                 self.cached_art_window_dims = (0, 0);
@@ -1465,14 +1471,17 @@ impl App {
         self.cached_art_window_dims = (0, 0);
         self.cached_art_window_protocol = None;
 
-        // Load album art: both as DynamicImage (for terminal graphics) and BlockArt (fallback)
+        // Load album art: extract once and cache the bytes
         if let Some(bytes) = crate::art::extract_cover_bytes(&path) {
             self.album_art_image = crate::art::load_cover_image(&bytes);
             // Small version for player bar
             self.album_art = crate::art::render_block_art(&bytes, 8, 3);
+            // Cache the bytes to avoid re-extraction
+            self.album_art_bytes = Some(bytes);
         } else {
             self.album_art = None;
             self.album_art_image = None;
+            self.album_art_bytes = None;
         }
     }
 }

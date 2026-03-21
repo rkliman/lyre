@@ -224,10 +224,13 @@ impl Player {
     }
 
     pub fn play_track(&mut self, track: Track) -> Result<()> {
-        // Stop existing sink
+        // Stop and drop existing sink before clearing decoder state
+        // This ensures the sink's playback thread has stopped before we drop the decoder
         if let Some(sink) = self.sink.take() {
-            sink.stop();
+            sink.stop(); // Blocks until playback thread stops
+            drop(sink); // Explicit drop for clarity
         }
+        // Now safe to drop decoder state since no threads are using it
         self.decoder_state = None;
 
         let path = Path::new(&track.path);
@@ -271,9 +274,12 @@ impl Player {
     }
 
     pub fn stop(&mut self) {
+        // Stop and drop sink before clearing decoder state
         if let Some(sink) = self.sink.take() {
-            sink.stop();
+            sink.stop(); // Blocks until playback thread stops
+            drop(sink); // Explicit drop for clarity
         }
+        // Now safe to drop decoder state since no threads are using it
         self.decoder_state = None;
         self.state = PlayerState::Stopped;
         self.current_track = None;
