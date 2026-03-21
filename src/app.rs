@@ -975,7 +975,7 @@ impl App {
     fn load_playlist_tracks(&self, name: &str) -> Vec<Track> {
         let pl = match self.playlists.iter().find(|p| p.name == name) {
             Some(p) => p,
-            none => return Vec::new(),
+            _ => return Vec::new(),
         };
         pl.entries
             .iter()
@@ -1026,8 +1026,8 @@ impl App {
                         .unwrap_or_else(|| "No lyrics available for this track.".to_string()),
                 )
             }
-            none => {
-                self.lyrics_track_path = none;
+            None => {
+                self.lyrics_track_path = None;
                 Some("No track is currently playing.".to_string())
             }
         };
@@ -1445,12 +1445,12 @@ impl App {
     pub fn refresh_album_art(&mut self) {
         let path = match self.player.current_track.as_ref().map(|t| t.path.clone()) {
             Some(p) => p,
-            none => {
-                self.album_art = none;
-                self.album_art_image = none;
-                self.album_art_path = none;
-                self.mpris_art_url = none;
-                self.cached_art_window_block = none;
+            None => {
+                self.album_art = None;
+                self.album_art_image = None;
+                self.album_art_path = None;
+                self.mpris_art_url = None;
+                self.cached_art_window_block = None;
                 self.cached_art_window_dims = (0, 0);
                 return;
             }

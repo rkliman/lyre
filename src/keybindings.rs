@@ -283,14 +283,22 @@ impl Keybindings {
 fn format_keys(keys: &[KeyCode]) -> String {
     keys.iter()
         .map(|k| match k {
+            Char(' ') => "⎵".into(),
             Char(c) => c.to_string(),
-            Up => "↑".into(), Down => "↓".into(),
-            Left => "←".into(), Right => "→".into(),
-            Tab => "Tab".into(), BackTab => "Shift-Tab".into(),
-            Enter => "Enter".into(), Esc => "Esc".into(),
-            Delete => "Del".into(), Home => "Home".into(),
-            End => "End".into(), PageUp => "PgUp".into(),
-            PageDown => "PgDn".into(), Backspace => "Backspace".into(),
+            Up => "↑".into(), 
+            Down => "↓".into(),
+            Left => "←".into(), 
+            Right => "→".into(),
+            Tab => "Tab".into(), 
+            BackTab => "Shift-Tab".into(),
+            Enter => "Enter".into(), 
+            Esc => "Esc".into(),
+            Delete => "Del".into(), 
+            Home => "Home".into(),
+            End => "End".into(), 
+            PageUp => "PgUp".into(),
+            PageDown => "PgDn".into(), 
+            Backspace => "Backspace".into(),
             _ => format!("{:?}", k),
         })
         .collect::<Vec<_>>()

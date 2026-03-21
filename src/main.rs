@@ -70,11 +70,11 @@ async fn main() -> Result<()> {
                     }
                     MprisCommand::Next => {
                         let _ = app.player.next();
-                        app.refresh_album_art(10, 3);
+                        app.refresh_album_art();
                     }
                     MprisCommand::Previous => {
                         let _ = app.player.prev();
-                        app.refresh_album_art(10, 3);
+                        app.refresh_album_art();
                     }
                 }
             }
