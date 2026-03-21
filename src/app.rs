@@ -555,8 +555,14 @@ impl App {
                         if self.queue_index < self.player.queue.len() {
                             self.player.queue_index = self.queue_index;
                             let track = self.player.queue[self.queue_index].clone();
-                            let _ = self.player.play_track(track);
-                            self.refresh_album_art();
+                            match self.player.play_track(track) {
+                                Ok(_) => {
+                                    self.refresh_album_art();
+                                }
+                                Err(e) => {
+                                    self.set_status(format!("Error playing track: {}", e));
+                                }
+                            }
                         }
                     }
                     Panel::Lyrics => {}
@@ -886,8 +892,14 @@ impl App {
                 if self.queue_index < self.player.queue.len() {
                     self.player.queue_index = self.queue_index;
                     let track = self.player.queue[self.queue_index].clone();
-                    let _ = self.player.play_track(track);
-                    self.refresh_album_art();
+                    match self.player.play_track(track) {
+                        Ok(_) => {
+                            self.refresh_album_art();
+                        }
+                        Err(e) => {
+                            self.set_status(format!("Error playing track: {}", e));
+                        }
+                    }
                 }
             }
             KeyCode::Delete | KeyCode::Char('x') => {
@@ -1513,7 +1525,9 @@ impl App {
                 ));
                 self.refresh_album_art();
             }
-            Err(e) => self.set_status(format!("Error: {}", e)),
+            Err(e) => {
+                self.set_status(format!("Error: {}", e));
+            }
         }
     }
 

@@ -41,7 +41,7 @@ impl DecoderState {
 
         let probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts)?;
 
-        let format = probed.format;
+        let mut format = probed.format;
         let track = format
             .tracks()
             .iter()
@@ -50,20 +50,20 @@ impl DecoderState {
 
         let track_id = track.id;
         let dec_opts = DecoderOptions::default();
-        let decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
+        let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
 
-        let spec = track
-            .codec_params
-            .sample_rate
-            .as_ref()
-            .and_then(|rate| {
-                track
-                    .codec_params
-                    .channels
-                    .as_ref()
-                    .map(|ch| SignalSpec::new(*rate, *ch))
-            })
-            .ok_or_else(|| "Missing sample rate or channels")?;
+        // Try to get spec from codec params first
+        let spec = if let (Some(rate), Some(channels)) = (
+            track.codec_params.sample_rate,
+            track.codec_params.channels.as_ref(),
+        ) {
+            SignalSpec::new(rate, *channels)
+        } else {
+            // For some formats (like AAC), we need to decode the first packet to get the spec
+            let packet = format.next_packet()?;
+            let decoded = decoder.decode(&packet)?;
+            *decoded.spec()
+        };
 
         // Create initial sample buffer with reasonable capacity
         let sample_buf = SampleBuffer::new(8192, spec);
