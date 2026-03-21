@@ -223,7 +223,7 @@ impl Player {
         })
     }
 
-    pub fn play_track(&mut self, track: Track) -> Result<()> {
+    pub fn play_track(&mut self, mut track: Track) -> Result<()> {
         // Stop and drop existing sink before clearing decoder state
         // This ensures the sink's playback thread has stopped before we drop the decoder
         if let Some(sink) = self.sink.take() {
@@ -232,6 +232,13 @@ impl Player {
         }
         // Now safe to drop decoder state since no threads are using it
         self.decoder_state = None;
+
+        // If duration is missing from the database, extract it from the file
+        if track.duration <= 0 {
+            if let Some(duration) = crate::art::extract_duration(&track.path) {
+                track.duration = duration;
+            }
+        }
 
         let path = Path::new(&track.path);
         if !path.exists() {

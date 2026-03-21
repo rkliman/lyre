@@ -10,7 +10,7 @@
 ///
 /// So an image resized to W × (H*2) pixels renders as W×H character cells.
 use image::{imageops::FilterType, DynamicImage, GenericImageView};
-use lofty::file::TaggedFileExt;
+use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -65,6 +65,13 @@ pub fn extract_lyrics(path: &str) -> Option<String> {
     // Try to get lyrics from common tag keys
     // Different formats use different keys: LYRICS, UNSYNCEDLYRICS, etc.
     tag.get_string(&ItemKey::Lyrics).map(|s| s.to_string())
+}
+
+/// Extract duration (in seconds) from the file at `path`.
+pub fn extract_duration(path: &str) -> Option<i64> {
+    let tagged = lofty::read_from_path(path).ok()?;
+    let properties = tagged.properties();
+    Some(properties.duration().as_secs() as i64)
 }
 
 /// Extract cover art from `path` and write it to a temp file.
