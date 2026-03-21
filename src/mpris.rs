@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 use zbus::{connection, interface, zvariant::OwnedValue, zvariant::Value};
 
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -252,7 +254,7 @@ fn build_metadata(s: &MprisState) -> HashMap<String, OwnedValue> {
 
 // ── Public spawn ──────────────────────────────────────────────────────────────
 
-pub async fn spawn() -> anyhow::Result<(
+pub async fn spawn() -> Result<(
     watch::Sender<MprisState>,
     tokio::sync::mpsc::UnboundedReceiver<MprisCommand>,
 )> {

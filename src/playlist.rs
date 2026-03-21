@@ -2,7 +2,7 @@
 ///
 /// Paths in m3u files can be absolute or relative to the playlist file.
 /// We always write them as absolute paths for simplicity.
-use anyhow::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -96,7 +96,7 @@ pub fn scan_playlists(music_dir: &str) -> Vec<Playlist> {
     let mut playlists = Vec::new();
     let walker = walkdir::WalkDir::new(music_dir)
         .into_iter()
-        .filter_map(Result::ok)
+        .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file());
 
     for entry in walker {

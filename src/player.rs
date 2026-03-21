@@ -1,4 +1,4 @@
-use anyhow::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::fs::File;
 use std::path::Path;
@@ -46,7 +46,7 @@ impl DecoderState {
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
-            .ok_or_else(|| anyhow::anyhow!("No supported audio tracks"))?;
+            .ok_or_else(|| "No supported audio tracks")?;
 
         let track_id = track.id;
         let dec_opts = DecoderOptions::default();
@@ -63,7 +63,7 @@ impl DecoderState {
                     .as_ref()
                     .map(|ch| SignalSpec::new(*rate, *ch))
             })
-            .ok_or_else(|| anyhow::anyhow!("Missing sample rate or channels"))?;
+            .ok_or_else(|| "Missing sample rate or channels")?;
 
         // Create initial sample buffer with reasonable capacity
         let sample_buf = SampleBuffer::new(8192, spec);
@@ -235,7 +235,7 @@ impl Player {
 
         let path = Path::new(&track.path);
         if !path.exists() {
-            return Err(anyhow::anyhow!("File not found: {}", track.path));
+            return Err(format!("File not found: {}", track.path).into());
         }
 
         let decoder_state = Arc::new(Mutex::new(DecoderState::new(path)?));
@@ -300,7 +300,7 @@ impl Player {
 
             Ok(())
         } else {
-            Err(anyhow::anyhow!("No track playing"))
+            Err("No track playing".into())
         }
     }
 

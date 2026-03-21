@@ -1,4 +1,4 @@
-use anyhow::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use crossterm::event::{KeyCode, KeyEvent};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -6,7 +6,6 @@ use image::DynamicImage;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use serde::Deserialize;
-use shellexpand;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -19,6 +18,16 @@ use crate::types::{
 };
 use ratatui::style::Color;
 use std::fs;
+
+/// Expand tilde (~) to home directory
+pub fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return path.replacen("~", &home.to_string_lossy(), 1);
+        }
+    }
+    path.to_string()
+}
 
 #[derive(Debug, Deserialize, Clone)]
 struct FilesConfig {
@@ -168,7 +177,7 @@ impl Default for Config {
 }
 
 fn load_config() -> Config {
-    let config_path_str = shellexpand::tilde("~/.config/lyre/config.toml").to_string();
+    let config_path_str = expand_tilde("~/.config/lyre/config.toml");
     let config_path = Path::new(&config_path_str);
 
     // Create default config if it doesn't exist
@@ -323,8 +332,8 @@ impl App {
     pub fn new() -> Result<Self> {
         let config = load_config();
         let colors = ColorScheme::from_config(&config.ui.colors);
-        let music_dir = shellexpand::tilde(&config.files.music_directory).to_string();
-        let db_path = shellexpand::tilde(&config.files.database_name).to_string();
+        let music_dir = expand_tilde(&config.files.music_directory);
+        let db_path = expand_tilde(&config.files.database_name);
 
         let db = Db::open(&db_path)?;
         let all_tracks = db.all_tracks().unwrap_or_default();

@@ -9,7 +9,7 @@ mod types;
 mod ui;
 
 use crate::types::PlayerState;
-use anyhow::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use app::App;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event},

@@ -1,8 +1,8 @@
-use anyhow::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use rusqlite::Connection;
-use shellexpand;
 use std::collections::HashSet;
 
+use crate::app::expand_tilde;
 use crate::types::Track;
 
 pub struct Db {
@@ -11,7 +11,7 @@ pub struct Db {
 
 impl Db {
     pub fn open(path: &str) -> Result<Self> {
-        let expanded = shellexpand::tilde(path).to_string();
+        let expanded = expand_tilde(path);
         let conn = Connection::open(&expanded)?;
         Ok(Self { conn })
     }
