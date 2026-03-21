@@ -23,3 +23,7 @@ highlight = "#f0c378"       # Bright highlight color (selected items when active
 playing = "#82c88c"         # Playing indicator color
 header_bg = "#1e1a16"       # Header background color
 selection_bg = "#2d261c"    # Selection background color
+overlay_bg = "#16120e"      # Overlay/modal background color (help, playlists, search)
+gauge_bg = "#28231c"        # Progress bar gauge background color
+art_bg = "#12100e"          # Album art placeholder background color
+art_border = "#28231c"      # Album art placeholder border/foreground color

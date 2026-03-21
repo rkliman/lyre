@@ -12,7 +12,8 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
-use crate::types::{PlayerState, Track};
+use crate::types::{LoopMode, PlayerState, Track};
+use rand::seq::SliceRandom;
 
 /// Shared state between Player and SymphoniaSource
 struct DecoderState {
@@ -51,8 +52,17 @@ impl DecoderState {
         let dec_opts = DecoderOptions::default();
         let decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
 
-        let spec = track.codec_params.sample_rate.as_ref()
-            .and_then(|rate| track.codec_params.channels.as_ref().map(|ch| SignalSpec::new(*rate, *ch)))
+        let spec = track
+            .codec_params
+            .sample_rate
+            .as_ref()
+            .and_then(|rate| {
+                track
+                    .codec_params
+                    .channels
+                    .as_ref()
+                    .map(|ch| SignalSpec::new(*rate, *ch))
+            })
             .ok_or_else(|| anyhow::anyhow!("Missing sample rate or channels"))?;
 
         // Create initial sample buffer with reasonable capacity
@@ -185,6 +195,10 @@ pub struct Player {
     playback_start: Option<Instant>,
     paused_elapsed: Duration,
     seek_offset: Duration,
+    // Shuffle and loop
+    pub shuffle: bool,
+    pub loop_mode: LoopMode,
+    shuffle_order: Vec<usize>,
 }
 
 impl Player {
@@ -203,6 +217,9 @@ impl Player {
             playback_start: None,
             paused_elapsed: Duration::ZERO,
             seek_offset: Duration::ZERO,
+            shuffle: false,
+            loop_mode: LoopMode::Off,
+            shuffle_order: Vec::new(),
         })
     }
 
@@ -302,8 +319,53 @@ impl Player {
         if self.queue.is_empty() {
             return Ok(());
         }
-        self.queue_index = (self.queue_index + 1) % self.queue.len();
-        let track = self.queue[self.queue_index].clone();
+
+        // Loop One: replay current track
+        if self.loop_mode == LoopMode::One {
+            let track = self.get_current_queue_track().clone();
+            return self.play_track(track);
+        }
+
+        if self.shuffle && !self.shuffle_order.is_empty() {
+            // Shuffle mode: advance in shuffle order
+            let shuffle_pos = self
+                .shuffle_order
+                .iter()
+                .position(|&i| i == self.queue_index)
+                .unwrap_or(0);
+            let next_shuffle_pos = shuffle_pos + 1;
+
+            if next_shuffle_pos >= self.shuffle_order.len() {
+                // End of shuffle order
+                if self.loop_mode == LoopMode::All {
+                    // Loop All: wrap to beginning of shuffle order
+                    self.queue_index = self.shuffle_order[0];
+                } else {
+                    // Loop Off: stop at end
+                    return Ok(());
+                }
+            } else {
+                self.queue_index = self.shuffle_order[next_shuffle_pos];
+            }
+        } else {
+            // Normal mode: sequential playback
+            let next_index = self.queue_index + 1;
+
+            if next_index >= self.queue.len() {
+                // End of queue
+                if self.loop_mode == LoopMode::All {
+                    // Loop All: wrap to beginning
+                    self.queue_index = 0;
+                } else {
+                    // Loop Off: stop at end
+                    return Ok(());
+                }
+            } else {
+                self.queue_index = next_index;
+            }
+        }
+
+        let track = self.get_current_queue_track().clone();
         self.play_track(track)
     }
 
@@ -311,13 +373,57 @@ impl Player {
         if self.queue.is_empty() {
             return Ok(());
         }
-        if self.queue_index == 0 {
-            self.queue_index = self.queue.len() - 1;
-        } else {
-            self.queue_index -= 1;
+
+        // Loop One: replay current track
+        if self.loop_mode == LoopMode::One {
+            let track = self.get_current_queue_track().clone();
+            return self.play_track(track);
         }
-        let track = self.queue[self.queue_index].clone();
+
+        if self.shuffle && !self.shuffle_order.is_empty() {
+            // Shuffle mode: go back in shuffle order
+            let shuffle_pos = self
+                .shuffle_order
+                .iter()
+                .position(|&i| i == self.queue_index)
+                .unwrap_or(0);
+
+            if shuffle_pos == 0 {
+                // At beginning of shuffle order
+                if self.loop_mode == LoopMode::All {
+                    // Loop All: wrap to end of shuffle order
+                    self.queue_index = self.shuffle_order[self.shuffle_order.len() - 1];
+                } else {
+                    // Loop Off: stay at beginning
+                    let track = self.get_current_queue_track().clone();
+                    return self.play_track(track);
+                }
+            } else {
+                self.queue_index = self.shuffle_order[shuffle_pos - 1];
+            }
+        } else {
+            // Normal mode: sequential playback
+            if self.queue_index == 0 {
+                // At beginning of queue
+                if self.loop_mode == LoopMode::All {
+                    // Loop All: wrap to end
+                    self.queue_index = self.queue.len() - 1;
+                } else {
+                    // Loop Off: stay at beginning
+                    let track = self.get_current_queue_track().clone();
+                    return self.play_track(track);
+                }
+            } else {
+                self.queue_index -= 1;
+            }
+        }
+
+        let track = self.get_current_queue_track().clone();
         self.play_track(track)
+    }
+
+    fn get_current_queue_track(&self) -> &Track {
+        &self.queue[self.queue_index]
     }
 
     pub fn volume_up(&mut self) {
@@ -362,15 +468,17 @@ impl Player {
         if self.state != PlayerState::Playing {
             return false;
         }
-        self.sink
-            .as_ref()
-            .map(|s| s.empty())
-            .unwrap_or(false)
+        self.sink.as_ref().map(|s| s.empty()).unwrap_or(false)
     }
 
     pub fn set_queue(&mut self, tracks: Vec<Track>, start_index: usize) {
         self.queue = tracks;
         self.queue_index = start_index;
+        if self.shuffle && !self.queue.is_empty() {
+            self.regenerate_shuffle_order();
+        } else {
+            self.shuffle_order.clear();
+        }
     }
 
     pub fn add_to_queue(&mut self, track: Track) {
@@ -388,6 +496,40 @@ impl Player {
 
     pub fn clear_queue(&mut self) {
         self.queue.clear();
+        self.queue_index = 0;
+        self.shuffle_order.clear();
+    }
+
+    pub fn toggle_shuffle(&mut self) {
+        self.shuffle = !self.shuffle;
+        if self.shuffle && !self.queue.is_empty() {
+            self.regenerate_shuffle_order();
+        }
+    }
+
+    pub fn toggle_loop(&mut self) {
+        self.loop_mode = self.loop_mode.next();
+    }
+
+    fn regenerate_shuffle_order(&mut self) {
+        let len = self.queue.len();
+        if len == 0 {
+            self.shuffle_order.clear();
+            return;
+        }
+
+        // Create shuffled indices, but keep current track at the front
+        let mut indices: Vec<usize> = (0..len).collect();
+        let mut rng = rand::thread_rng();
+        indices.shuffle(&mut rng);
+
+        // Find where current queue_index ended up and swap it to the front
+        if let Some(pos) = indices.iter().position(|&i| i == self.queue_index) {
+            indices.swap(0, pos);
+        }
+
+        self.shuffle_order = indices;
+        // Set position to 0 since we just shuffled with current track at front
         self.queue_index = 0;
     }
 }

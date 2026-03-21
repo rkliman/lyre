@@ -120,15 +120,15 @@ pub enum SidebarItem {
 impl SidebarItem {
     pub fn label(&self) -> String {
         match self {
-            SidebarItem::AllTracks    => "♫  All Tracks".to_string(),
-            SidebarItem::Artists      => "  Artists".to_string(),
-            SidebarItem::Artist(a)    => format!("    {}", a),
-            SidebarItem::Albums       => "  Albums".to_string(),
-            SidebarItem::Album(a)     => format!("    {}", a),
-            SidebarItem::Genres       => "  Genres".to_string(),
-            SidebarItem::Genre(g)     => format!("    {}", g),
-            SidebarItem::Playlists    => "  Playlists".to_string(),
-            SidebarItem::Playlist(p)  => format!("    {}", p),
+            SidebarItem::AllTracks => "♫  All Tracks".to_string(),
+            SidebarItem::Artists => "  Artists".to_string(),
+            SidebarItem::Artist(a) => format!("    {}", a),
+            SidebarItem::Albums => "  Albums".to_string(),
+            SidebarItem::Album(a) => format!("    {}", a),
+            SidebarItem::Genres => "  Genres".to_string(),
+            SidebarItem::Genre(g) => format!("    {}", g),
+            SidebarItem::Playlists => "  Playlists".to_string(),
+            SidebarItem::Playlist(p) => format!("    {}", p),
         }
     }
 
@@ -170,4 +170,37 @@ pub enum PlayerState {
     Stopped,
     Playing,
     Paused,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoopMode {
+    Off,
+    All,
+    One,
+}
+
+impl LoopMode {
+    pub fn label(&self) -> &str {
+        match self {
+            LoopMode::Off => "off",
+            LoopMode::All => "all",
+            LoopMode::One => "one",
+        }
+    }
+
+    pub fn icon(&self) -> &str {
+        match self {
+            LoopMode::Off => "↦",
+            LoopMode::All => "⟳",
+            LoopMode::One => "⟳₁",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            LoopMode::Off => LoopMode::All,
+            LoopMode::All => LoopMode::One,
+            LoopMode::One => LoopMode::Off,
+        }
+    }
 }

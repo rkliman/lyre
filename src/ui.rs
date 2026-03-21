@@ -8,9 +8,9 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
-use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
+use crate::{app::App, types::LoopMode};
 use crate::types::format_duration;
+use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
 
 fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
@@ -34,16 +34,21 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     // but or the lyre emoji reads better in most terminals)
     let left = Line::from(vec![
         Span::styled(" ", Style::default()),
-        Span::styled("lyre", Style::default()
-            .fg(c.highlight)
-            .add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "lyre",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" ", Style::default()),
         Span::styled("v0.1.0", Style::default().fg(c.dim)),
         Span::styled(" ", Style::default()),
         Span::styled("─", Style::default().fg(c.dim)),
         Span::styled(" ", Style::default()),
-        Span::styled("a music player & library manager. press '?' for help.",
-            Style::default().fg(c.dim)),
+        Span::styled(
+            "a music player & library manager. press '?' for help.",
+            Style::default().fg(c.dim),
+        ),
     ]);
 
     // ── Right: author + version ───────────────────────────────────────────────
@@ -72,14 +77,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // banner
-            Constraint::Min(1),     // body
-            Constraint::Length(5),  // player bar
+            Constraint::Length(3), // banner
+            Constraint::Min(1),    // body
+            Constraint::Length(5), // player bar
         ])
         .split(area);
 
     let banner_area = root[0];
-    let body_area   = root[1];
+    let body_area = root[1];
     let player_area = root[2];
 
     // ── Body: sidebar | tracklist | queue | lyrics (optional) ────────────────
@@ -90,10 +95,10 @@ pub fn render(f: &mut Frame, app: &mut App) {
         let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(20),  // sidebar
-                Constraint::Min(10),         // track list
-                Constraint::Percentage(28),  // queue
-                Constraint::Percentage(28),  // lyrics
+                Constraint::Percentage(20), // sidebar
+                Constraint::Min(10),        // track list
+                Constraint::Percentage(28), // queue
+                Constraint::Percentage(28), // lyrics
             ])
             .split(body_area);
 
@@ -105,9 +110,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
         let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(20),  // sidebar
-                Constraint::Min(10),         // track list
-                Constraint::Percentage(28),  // queue
+                Constraint::Percentage(20), // sidebar
+                Constraint::Min(10),        // track list
+                Constraint::Percentage(28), // queue
             ])
             .split(body_area);
 
@@ -123,7 +128,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // Overlays render on top of everything
     match &app.overlay {
         Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, app, name),
-        Overlay::AddToPlaylist { selected, .. } => render_add_to_playlist_overlay(f, area, app, *selected),
+        Overlay::AddToPlaylist { selected, .. } => {
+            render_add_to_playlist_overlay(f, area, app, *selected)
+        }
         Overlay::None => {}
     }
 }
@@ -141,7 +148,11 @@ fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {
             format!(" {} ", title),
             Style::default()
                 .fg(if active { c.highlight } else { c.dim })
-                .add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }),
+                .add_modifier(if active {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -166,7 +177,10 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
             let style = if item.is_header() {
                 Style::default().fg(c.accent).add_modifier(Modifier::BOLD)
             } else if is_selected && active {
-                Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(c.highlight)
+                    .bg(c.selection_bg)
+                    .add_modifier(Modifier::BOLD)
             } else if is_selected {
                 Style::default().fg(c.accent2).bg(c.selection_bg)
             } else {
@@ -176,9 +190,9 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
             // For headers, prepend an expand/collapse chevron
             let label = if item.is_header() {
                 let section_key = match item {
-                    SidebarItem::Artists   => "Artists",
-                    SidebarItem::Albums    => "Albums",
-                    SidebarItem::Genres    => "Genres",
+                    SidebarItem::Artists => "Artists",
+                    SidebarItem::Albums => "Albums",
+                    SidebarItem::Genres => "Genres",
                     SidebarItem::Playlists => "Playlists",
                     _ => "",
                 };
@@ -216,12 +230,15 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
             format!(
                 " Tracks [2] — {} {} ",
                 app.sort_field.label(),
-                if app.sort_order == crate::types::SortOrder::Asc { "↑" } else { "↓" }
+                if app.sort_order == crate::types::SortOrder::Asc {
+                    "↑"
+                } else {
+                    "↓"
+                }
             )
         }
     };
-    let block = panel_block(&title_str, active, app)
-        .title_alignment(Alignment::Left);
+    let block = panel_block(&title_str, active, app).title_alignment(Alignment::Left);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -238,25 +255,51 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 
     let search_area = inner_rows[0];
     let header_area = inner_rows[1];
-    let list_area   = inner_rows[2];
+    let list_area = inner_rows[2];
 
     // ── Search box ────────────────────────────────────────────────────────────
     let search_active = app.search_mode;
-    let has_query     = !app.search_query.is_empty();
+    let has_query = !app.search_query.is_empty();
 
-    let box_bg             = if search_active { Color::Rgb(22, 19, 15) } else { c.background };
-    let box_border_color   = if search_active { c.accent } else if has_query { c.accent2 } else { c.dim };
+    let box_bg = if search_active {
+        c.overlay_bg
+    } else {
+        c.background
+    };
+    let box_border_color = if search_active {
+        c.accent
+    } else if has_query {
+        c.accent2
+    } else {
+        c.dim
+    };
 
     let result_hint = if has_query {
-        format!("  {} result{}", app.filtered_tracks.len(), if app.filtered_tracks.len() == 1 { "" } else { "s" })
+        format!(
+            "  {} result{}",
+            app.filtered_tracks.len(),
+            if app.filtered_tracks.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        )
     } else {
         String::new()
     };
 
     let box_title = if search_active {
-        Span::styled(" search ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD))
+        Span::styled(
+            " search ",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        )
     } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), Style::default().fg(c.accent))
+        Span::styled(
+            format!(" search{} ", result_hint),
+            Style::default().fg(c.accent),
+        )
     } else {
         Span::styled(" search ", Style::default().fg(c.dim))
     };
@@ -275,7 +318,10 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(vec![
             Span::styled(
                 app.search_query.clone(),
-                Style::default().fg(c.highlight).bg(box_bg).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c.highlight)
+                    .bg(box_bg)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("█", Style::default().fg(c.accent).bg(box_bg)),
         ])
@@ -299,18 +345,29 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     // Render column headers
     // Layout: [icon] Title  Artist  Album  Genre  Dur
     let w = inner.width as usize;
-    let title_w  = w * 28 / 100;
+    let title_w = w * 28 / 100;
     let artist_w = w * 22 / 100;
-    let album_w  = w * 22 / 100;
-    let genre_w  = w * 16 / 100;
+    let album_w = w * 22 / 100;
+    let genre_w = w * 16 / 100;
 
     let header = format!(
         "{:<tw$}  {:<aw$}  {:<bw$}  {:<gw$}  {:>4}",
-        "Title", "Artist", "Album", "Genre", "Dur",
-        tw = title_w, aw = artist_w, bw = album_w, gw = genre_w
+        "Title",
+        "Artist",
+        "Album",
+        "Genre",
+        "Dur",
+        tw = title_w,
+        aw = artist_w,
+        bw = album_w,
+        gw = genre_w
     );
-    let header_widget = Paragraph::new(header)
-        .style(Style::default().fg(c.accent).add_modifier(Modifier::BOLD).bg(c.header_bg));
+    let header_widget = Paragraph::new(header).style(
+        Style::default()
+            .fg(c.accent)
+            .add_modifier(Modifier::BOLD)
+            .bg(c.header_bg),
+    );
     f.render_widget(header_widget, header_area);
 
     // ── Variable-height track rows ────────────────────────────────────────────
@@ -324,7 +381,10 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Non-selected rows are always 1 pixel row; selected row expands to full height
     let sel = app.track_list_index;
-    let row_heights: Vec<usize> = app.wrapped_tracks.iter().enumerate()
+    let row_heights: Vec<usize> = app
+        .wrapped_tracks
+        .iter()
+        .enumerate()
         .map(|(i, (_, expanded))| if i == sel { expanded.len() } else { 1 })
         .collect();
 
@@ -333,7 +393,9 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         let sel_clamped = sel.min(row_heights.len().saturating_sub(1));
         let sel_start: usize = row_heights[..sel_clamped].iter().sum();
         let sel_end = sel_start + row_heights[sel_clamped];
-        let offset_rows: usize = row_heights[..app.track_list_offset.min(row_heights.len())].iter().sum();
+        let offset_rows: usize = row_heights[..app.track_list_offset.min(row_heights.len())]
+            .iter()
+            .sum();
 
         if sel_start < offset_rows {
             app.track_list_offset = sel_clamped;
@@ -342,8 +404,13 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
             let mut new_offset = sel_clamped;
             for idx in (0..=sel_clamped).rev() {
                 consumed += row_heights[idx];
-                if consumed >= visible_height { new_offset = idx + 1; break; }
-                if idx == 0 { new_offset = 0; }
+                if consumed >= visible_height {
+                    new_offset = idx + 1;
+                    break;
+                }
+                if idx == 0 {
+                    new_offset = 0;
+                }
             }
             app.track_list_offset = new_offset;
         }
@@ -353,40 +420,66 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let mut y = list_area.y;
     let bottom = list_area.y + list_area.height;
 
-    for (i, (collapsed, expanded)) in app.wrapped_tracks.iter().enumerate().skip(app.track_list_offset) {
-        if y >= bottom { break; }
+    for (i, (collapsed, expanded)) in app
+        .wrapped_tracks
+        .iter()
+        .enumerate()
+        .skip(app.track_list_offset)
+    {
+        if y >= bottom {
+            break;
+        }
 
         let track = &app.filtered_tracks[i];
         let is_selected = i == app.track_list_index;
-        let is_playing  = playing_path.as_deref() == Some(&track.path);
+        let is_playing = playing_path.as_deref() == Some(&track.path);
 
-        let row_bg = if is_selected { c.selection_bg } else { c.background };
-        let fg = if is_selected && active { c.highlight }
-                 else if is_selected      { c.accent2 }
-                 else if is_playing       { c.playing }
-                 else                     { c.foreground };
+        let row_bg = if is_selected {
+            c.selection_bg
+        } else {
+            c.background
+        };
+        let fg = if is_selected && active {
+            c.highlight
+        } else if is_selected {
+            c.accent2
+        } else if is_playing {
+            c.playing
+        } else {
+            c.foreground
+        };
         let bold = is_selected && active;
 
         let play_icon = if is_playing {
             match app.player.state {
                 PlayerState::Playing => "▶",
-                PlayerState::Paused  => "⏸",
+                PlayerState::Paused => "⏸",
                 PlayerState::Stopped => " ",
             }
-        } else { " " };
+        } else {
+            " "
+        };
 
         // Non-selected: show truncated single line. Selected: show all wrapped lines.
-        let render_lines: &[String] = if is_selected { expanded } else {
+        let render_lines: &[String] = if is_selected {
+            expanded
+        } else {
             std::slice::from_ref(collapsed)
         };
 
         for (row_idx, line_text) in render_lines.iter().enumerate() {
-            if y >= bottom { break; }
+            if y >= bottom {
+                break;
+            }
 
             let (line_fg, line_bold) = if row_idx == 0 {
                 (fg, bold)
             } else {
-                let cfg = if is_selected && active { c.accent } else { c.dim };
+                let cfg = if is_selected && active {
+                    c.accent
+                } else {
+                    c.dim
+                };
                 (cfg, false)
             };
 
@@ -396,13 +489,24 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
                 line_text.clone()
             };
 
-            let style = Style::default().fg(line_fg).bg(row_bg)
-                .add_modifier(if line_bold { Modifier::BOLD } else { Modifier::empty() });
+            let style = Style::default()
+                .fg(line_fg)
+                .bg(row_bg)
+                .add_modifier(if line_bold {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                });
 
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(text, style)))
                     .style(Style::default().bg(row_bg)),
-                Rect { x: list_area.x, y, width: list_area.width, height: 1 },
+                Rect {
+                    x: list_area.x,
+                    y,
+                    width: list_area.width,
+                    height: 1,
+                },
             );
             y += 1;
         }
@@ -412,17 +516,31 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     while y < bottom {
         f.render_widget(
             Paragraph::new("").style(Style::default().bg(c.background)),
-            Rect { x: list_area.x, y, width: list_area.width, height: 1 },
+            Rect {
+                x: list_area.x,
+                y,
+                width: list_area.width,
+                height: 1,
+            },
         );
         y += 1;
     }
 
     // Count indicator
     f.render_widget(
-        Paragraph::new(format!(" {}/{} ", app.track_list_index + 1, app.filtered_tracks.len()))
-            .style(Style::default().fg(c.dim))
-            .alignment(Alignment::Right),
-        Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
+        Paragraph::new(format!(
+            " {}/{} ",
+            app.track_list_index + 1,
+            app.filtered_tracks.len()
+        ))
+        .style(Style::default().fg(c.dim))
+        .alignment(Alignment::Right),
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        },
     );
 }
 
@@ -450,8 +568,8 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, track)| {
-            let is_playing = i == app.player.queue_index
-                && app.player.state != PlayerState::Stopped;
+            let is_playing =
+                i == app.player.queue_index && app.player.state != PlayerState::Stopped;
             let is_selected = i == app.queue_index;
 
             let icon = if is_playing {
@@ -468,7 +586,10 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             let line = format!("{}{}", icon, title_str);
 
             let style = if is_selected && active {
-                Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(c.highlight)
+                    .bg(c.selection_bg)
+                    .add_modifier(Modifier::BOLD)
             } else if is_selected {
                 Style::default().fg(c.accent2).bg(c.selection_bg)
             } else if is_playing {
@@ -509,9 +630,9 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(art_w),   // album art
-            Constraint::Percentage(50),  // now playing info
-            Constraint::Min(10),         // progress + controls
+            Constraint::Length(art_w),  // album art
+            Constraint::Percentage(50), // now playing info
+            Constraint::Min(10),        // progress + controls
         ])
         .split(inner);
 
@@ -528,8 +649,9 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     };
 
     if art_rect.height > 0 {
-        let art = app.album_art.as_ref().cloned()
-            .unwrap_or_else(|| crate::art::BlockArt::placeholder(10, art_h));
+        let art = app.album_art.as_ref().cloned().unwrap_or_else(|| {
+            crate::art::BlockArt::placeholder(10, art_h, c.art_border, c.art_bg)
+        });
 
         for (i, row) in art.rows.iter().enumerate().take(art_rect.height as usize) {
             let row_rect = Rect {
@@ -558,7 +680,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     if let Some(track) = &app.player.current_track {
         let state_icon = match app.player.state {
             PlayerState::Playing => "▶",
-            PlayerState::Paused  => "⏸",
+            PlayerState::Paused => "⏸",
             PlayerState::Stopped => "■",
         };
 
@@ -566,7 +688,9 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(format!("{} ", state_icon), Style::default().fg(c.playing)),
             Span::styled(
                 truncate(track.display_title(), cols[1].width as usize - 4),
-                Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c.highlight)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]);
 
@@ -577,14 +701,17 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
 
         let meta_line = Line::from(Span::styled(
             format!(
-                "  {} {}  vol {:.0}%",
-                if track.year > 0 { track.year.to_string() } else { String::new() },
+                "  {} {}",
+                if track.year > 0 {
+                    track.year.to_string()
+                } else {
+                    "Unknown Year".to_string()
+                },
                 if !track.genre.is_empty() {
                     format!("· {}", track.genre.split(',').next().unwrap_or("").trim())
                 } else {
-                    String::new()
-                },
-                app.player.volume * 100.0
+                    "· Unknown Genre".to_string() 
+                }
             ),
             Style::default().fg(c.dim),
         ));
@@ -593,8 +720,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(Paragraph::new(artist_line), left_rows[1]);
         f.render_widget(Paragraph::new(meta_line), left_rows[2]);
     } else {
-        let idle = Paragraph::new("■ lyre — no track playing")
-            .style(Style::default().fg(c.dim));
+        let idle = Paragraph::new("■ lyre — no track playing").style(Style::default().fg(c.dim));
         f.render_widget(idle, left_rows[0]);
 
         let hint = Paragraph::new("  Press [Enter] to play · [?] for help")
@@ -612,35 +738,56 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(cols[2]);
 
-    let elapsed  = app.player.elapsed_secs();
-    let total    = app.player.current_track.as_ref().map(|t| t.duration).unwrap_or(0);
+    let elapsed = app.player.elapsed_secs();
+    let total = app
+        .player
+        .current_track
+        .as_ref()
+        .map(|t| t.duration)
+        .unwrap_or(0);
     let progress = app.player.progress();
 
+    let status = Span::styled(
+        "space:play/pause  n:next  p:prev  z:shuffle  o:loop  ?:help",
+        Style::default().fg(c.dim),
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(status)).alignment(Alignment::Center),
+        right_rows[0],
+    );
+
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(c.accent).bg(c.gauge_bg))
+        .ratio(progress)
+        .label("");
+    f.render_widget(gauge, right_rows[1]);
+
+    // Time centered across the full width
     let time_line = Line::from(vec![
         Span::styled(format_duration(elapsed), Style::default().fg(c.foreground)),
         Span::styled(" / ", Style::default().fg(c.dim)),
         Span::styled(format_duration(total), Style::default().fg(c.dim)),
     ]);
-    f.render_widget(Paragraph::new(time_line).alignment(Alignment::Center), right_rows[0]);
-
-    let gauge = Gauge::default()
-        .gauge_style(Style::default().fg(c.accent).bg(Color::Rgb(40, 35, 28)))
-        .ratio(progress)
-        .label("");
-    f.render_widget(gauge, right_rows[1]);
-
-    let status = if let Some(msg) = &app.status_message {
-        Span::styled(truncate(msg, cols[2].width as usize), Style::default().fg(c.dim))
-    } else {
-        Span::styled(
-            "spc:play/pause  n:next  p:prev  s:stop  S:sort  /:search",
-            Style::default().fg(c.dim),
-        )
-    };
     f.render_widget(
-        Paragraph::new(Line::from(status)).alignment(Alignment::Center),
+        Paragraph::new(time_line).alignment(Alignment::Center),
         right_rows[2],
     );
+
+    // Shuffle and loop indicators on the right (rendered on top)
+    let shuffle_indicator = if app.player.shuffle { "⤮" } else { "⇉" };
+    let shuffle_color = if app.player.shuffle { Style::default().fg(c.playing) } else { Style::default().fg(c.dim) };
+    let loop_indicator = format!("{}", app.player.loop_mode.icon());
+    let loop_color = if app.player.loop_mode == LoopMode::Off { Style::default().fg(c.dim) } else { Style::default().fg(c.playing) };
+    let controls_line = Line::from(vec![
+        Span::styled(format!("vol {:.0}%  ", app.player.volume * 100.0), Style::default().fg(c.dim)),
+        Span::styled(shuffle_indicator, shuffle_color),
+        Span::styled("  ", Style::default()),
+        Span::styled(loop_indicator, loop_color),
+    ]);
+    f.render_widget(
+        Paragraph::new(controls_line).alignment(Alignment::Left),
+        right_rows[2],
+    )
 }
 
 fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
@@ -649,16 +796,26 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
     let h = area.height.saturating_sub(4);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + 2;
-    let popup = Rect { x, y, width: w, height: h };
+    let popup = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" ♫ Lyre — Keybindings ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " ♫ Lyre — Keybindings ",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(Style::default().fg(c.accent))
-        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+        .style(Style::default().bg(c.overlay_bg));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -674,51 +831,83 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
 
     // All sections in one list
     let sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
-        ("Navigation", vec![
-            ("Tab / Shift-Tab",            "Cycle panels"),
-            ("1 / 2 / 3",                  "Jump to sidebar / tracks / queue"),
-            ("j / k  or  ↑ / ↓",          "Move up / down"),
-            ("g / G",                      "Go to top / bottom"),
-            ("u / d  or  PgUp/PgDn",      "Page up / down (all panels)"),
-            ("h / l  or  ← / →",          "Switch panels"),
-            ("→ / l  on section header",  "Expand  (or focus tracks if open)"),
-            ("← / h  on section header",  "Collapse"),
-        ]),
-        ("Playback", vec![
-            ("Enter  or  Space", "Play selected / toggle pause"),
-            ("n",                "Next track in queue"),
-            ("p",                "Previous track in queue"),
-            ("s",                "Stop"),
-            ("+ / -",            "Volume up / down"),
-            (". / ,",            "Seek forward / backward (5 seconds)"),
-        ]),
-        ("Lyrics", vec![
-            ("4  or  L", "Toggle lyrics panel"),
-            ("r",        "Reload lyrics for current track (when in lyrics panel)"),
-        ]),
-        ("Queue", vec![
-            ("a",       "Add selected track to queue"),
-            ("A",       "Add all visible tracks to queue"),
-            ("x / Del", "Remove selected from queue"),
-            ("c",       "Clear entire queue"),
-        ]),
-        ("Library", vec![
-            ("S",   "Cycle sort field (title→artist→album→year→genre→dur)"),
-            ("R",   "Toggle sort order (asc / desc)"),
-            ("/",   "Activate search bar (always visible above track list)"),
-            ("Esc", "Deactivate search bar  (results stay if query non-empty)"),
-        ]),
-        ("Playlists", vec![
-            ("N  on Playlists header", "Create a new empty playlist"),
-            ("P  on any track",        "Add track to an existing playlist"),
-            ("x / Del  in playlist",   "Remove track from playlist (saves immediately)"),
-            ("K  in playlist",         "Move selected track up"),
-            ("J  in playlist",         "Move selected track down"),
-        ]),
-        ("Other", vec![
-            ("?", "Toggle this help overlay"),
-            ("q", "Quit"),
-        ]),
+        (
+            "Navigation",
+            vec![
+                ("Tab / Shift-Tab", "Cycle panels"),
+                ("1 / 2 / 3", "Jump to sidebar / tracks / queue"),
+                ("j / k  or  ↑ / ↓", "Move up / down"),
+                ("g / G", "Go to top / bottom"),
+                ("u / d  or  PgUp/PgDn", "Page up / down (all panels)"),
+                ("h / l  or  ← / →", "Switch panels"),
+                (
+                    "→ / l  on section header",
+                    "Expand  (or focus tracks if open)",
+                ),
+                ("← / h  on section header", "Collapse"),
+            ],
+        ),
+        (
+            "Playback",
+            vec![
+                ("Enter  or  Space", "Play selected / toggle pause"),
+                ("n", "Next track in queue"),
+                ("p", "Previous track in queue"),
+                ("s", "Stop"),
+                ("+ / -", "Volume up / down"),
+                (". / ,", "Seek forward / backward (5 seconds)"),
+                ("z", "Toggle shuffle"),
+                ("o", "Toggle loop (off → all → one)"),
+            ],
+        ),
+        (
+            "Lyrics",
+            vec![
+                ("4  or  L", "Toggle lyrics panel"),
+                (
+                    "r",
+                    "Reload lyrics for current track (when in lyrics panel)",
+                ),
+            ],
+        ),
+        (
+            "Queue",
+            vec![
+                ("a", "Add selected track to queue"),
+                ("A", "Add all visible tracks to queue"),
+                ("x / Del", "Remove selected from queue"),
+                ("c", "Clear entire queue"),
+            ],
+        ),
+        (
+            "Library",
+            vec![
+                ("S", "Cycle sort field (title→artist→album→year→genre→dur)"),
+                ("R", "Toggle sort order (asc / desc)"),
+                ("/", "Activate search bar (always visible above track list)"),
+                (
+                    "Esc",
+                    "Deactivate search bar  (results stay if query non-empty)",
+                ),
+            ],
+        ),
+        (
+            "Playlists",
+            vec![
+                ("N  on Playlists header", "Create a new empty playlist"),
+                ("P  on any track", "Add track to an existing playlist"),
+                (
+                    "x / Del  in playlist",
+                    "Remove track from playlist (saves immediately)",
+                ),
+                ("K  in playlist", "Move selected track up"),
+                ("J  in playlist", "Move selected track down"),
+            ],
+        ),
+        (
+            "Other",
+            vec![("?", "Toggle this help overlay"), ("q", "Quit")],
+        ),
     ];
 
     // Build all lines
@@ -752,13 +941,16 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
         .take(visible_height)
         .collect();
 
-    let para = Paragraph::new(visible_lines)
-        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+    let para = Paragraph::new(visible_lines).style(Style::default().bg(c.overlay_bg));
     f.render_widget(para, content_area);
 
     // Show scroll indicator
     let footer_text = if total_lines > visible_height {
-        format!("↑/↓ to scroll ({}/{}) · Esc to close", scroll_offset + 1, total_lines - visible_height + 1)
+        format!(
+            "↑/↓ to scroll ({}/{}) · Esc to close",
+            scroll_offset + 1,
+            total_lines - visible_height + 1
+        )
     } else {
         "Esc or ? to close".to_string()
     };
@@ -776,23 +968,37 @@ fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str)
     let h = 5u16;
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let popup = Rect { x, y, width: w, height: h };
+    let popup = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" New Playlist ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " New Playlist ",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(c.accent))
-        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+        .style(Style::default().bg(c.overlay_bg));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
         .split(inner);
 
     f.render_widget(
@@ -802,12 +1008,17 @@ fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str)
     f.render_widget(
         Paragraph::new(Span::styled(
             format!("{}█", name),
-            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
         )),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(Span::styled("Enter to confirm · Esc to cancel", Style::default().fg(c.dim))),
+        Paragraph::new(Span::styled(
+            "Enter to confirm · Esc to cancel",
+            Style::default().fg(c.dim),
+        )),
         rows[2],
     );
 }
@@ -818,16 +1029,26 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
     let h = (app.playlists.len() as u16 + 4).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let popup = Rect { x, y, width: w, height: h };
+    let popup = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(Span::styled(" Add to Playlist ", Style::default().fg(c.highlight).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Add to Playlist ",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(c.accent))
-        .style(Style::default().bg(Color::Rgb(22, 18, 14)));
+        .style(Style::default().bg(c.overlay_bg));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -837,24 +1058,38 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let items: Vec<ListItem> = app.playlists.iter().enumerate().map(|(i, pl)| {
-        let style = if i == selected {
-            Style::default().fg(c.highlight).bg(c.selection_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(c.foreground)
-        };
-        let icon = if i == selected { "▶ " } else { "  " };
-        ListItem::new(Line::from(Span::styled(format!("{}{}", icon, pl.name), style)))
-    }).collect();
+    let items: Vec<ListItem> = app
+        .playlists
+        .iter()
+        .enumerate()
+        .map(|(i, pl)| {
+            let style = if i == selected {
+                Style::default()
+                    .fg(c.highlight)
+                    .bg(c.selection_bg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(c.foreground)
+            };
+            let icon = if i == selected { "▶ " } else { "  " };
+            ListItem::new(Line::from(Span::styled(
+                format!("{}{}", icon, pl.name),
+                style,
+            )))
+        })
+        .collect();
 
     let mut state = ListState::default();
     state.select(Some(selected));
-    let list = List::new(items).style(Style::default().bg(Color::Rgb(22, 18, 14)));
+    let list = List::new(items).style(Style::default().bg(c.overlay_bg));
     f.render_stateful_widget(list, rows[0], &mut state);
 
     f.render_widget(
-        Paragraph::new(Span::styled("Enter to add · Esc to cancel", Style::default().fg(c.dim)))
-            .alignment(Alignment::Center),
+        Paragraph::new(Span::styled(
+            "Enter to add · Esc to cancel",
+            Style::default().fg(c.dim),
+        ))
+        .alignment(Alignment::Center),
         rows[1],
     );
 }
@@ -867,7 +1102,9 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let lyrics_text = app.lyrics_content.as_ref()
+    let lyrics_text = app
+        .lyrics_content
+        .as_ref()
         .map(|s| s.as_str())
         .unwrap_or("");
 
@@ -907,7 +1144,9 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn truncate(s: &str, max: usize) -> String {
     use unicode_width::UnicodeWidthChar;
-    if max == 0 { return String::new(); }
+    if max == 0 {
+        return String::new();
+    }
     let mut result = String::new();
     let mut w = 0usize;
     let chars: Vec<char> = s.chars().collect();
@@ -920,19 +1159,25 @@ fn truncate(s: &str, max: usize) -> String {
                 while w > max - 1 {
                     if let Some(last) = result.pop() {
                         w -= last.width().unwrap_or(1);
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 result.push('…');
             }
             // Pad to max display width
             let current_w: usize = result.chars().map(|c| c.width().unwrap_or(1)).sum();
-            if current_w < max { result.push_str(&" ".repeat(max - current_w)); }
+            if current_w < max {
+                result.push_str(&" ".repeat(max - current_w));
+            }
             return result;
         }
         result.push(ch);
         w += cw;
     }
     // String fit — pad to max
-    if w < max { result.push_str(&" ".repeat(max - w)); }
+    if w < max {
+        result.push_str(&" ".repeat(max - w));
+    }
     result
 }

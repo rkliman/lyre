@@ -4,9 +4,10 @@ mod db;
 mod mpris;
 mod player;
 mod playlist;
-mod ui;
 mod types;
+mod ui;
 
+use crate::types::PlayerState;
 use anyhow::Result;
 use app::App;
 use crossterm::{
@@ -14,11 +15,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use mpris::{MprisCommand, MprisState, MprisPlaybackStatus};
+use mpris::{MprisCommand, MprisPlaybackStatus, MprisState};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
-use crate::types::PlayerState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -64,7 +64,9 @@ async fn main() -> Result<()> {
                             app.player.toggle_pause();
                         }
                     }
-                    MprisCommand::Stop => { app.player.stop(); }
+                    MprisCommand::Stop => {
+                        app.player.stop();
+                    }
                     MprisCommand::Next => {
                         let _ = app.player.next();
                         app.refresh_album_art(10, 3);
@@ -96,12 +98,14 @@ async fn main() -> Result<()> {
             if let Some(ref tx) = mpris_tx {
                 let status = match app.player.state {
                     PlayerState::Playing => MprisPlaybackStatus::Playing,
-                    PlayerState::Paused  => MprisPlaybackStatus::Paused,
+                    PlayerState::Paused => MprisPlaybackStatus::Paused,
                     PlayerState::Stopped => MprisPlaybackStatus::Stopped,
                 };
                 let state = if let Some(ref track) = app.player.current_track {
                     // Reuse the cached art path if the track hasn't changed
-                    let art_url = app.album_art_path.as_deref()
+                    let art_url = app
+                        .album_art_path
+                        .as_deref()
                         .filter(|p| *p == track.path.as_str())
                         .and_then(|_| app.mpris_art_url.clone())
                         .or_else(|| {
@@ -111,16 +115,19 @@ async fn main() -> Result<()> {
                         });
                     MprisState {
                         status,
-                        title:    track.display_title().to_string(),
-                        artist:   track.display_artist().to_string(),
-                        album:    track.display_album().to_string(),
-                        length:   track.duration * 1_000_000,
+                        title: track.display_title().to_string(),
+                        artist: track.display_artist().to_string(),
+                        album: track.display_album().to_string(),
+                        length: track.duration * 1_000_000,
                         position: app.player.elapsed_secs() * 1_000_000,
-                        volume:   app.player.volume as f64,
+                        volume: app.player.volume as f64,
                         art_url,
                     }
                 } else {
-                    MprisState { status, ..Default::default() }
+                    MprisState {
+                        status,
+                        ..Default::default()
+                    }
                 };
                 let _ = tx.send(state);
             }

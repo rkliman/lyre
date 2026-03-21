@@ -6,8 +6,7 @@
 ///   - background colour  = bottom pixel
 ///
 /// So an image resized to W × (H*2) pixels renders as W×H character cells.
-
-use image::{DynamicImage, GenericImageView, imageops::FilterType};
+use image::{imageops::FilterType, DynamicImage, GenericImageView};
 use lofty::file::TaggedFileExt;
 use lofty::picture::PictureType;
 use ratatui::style::{Color, Style};
@@ -21,15 +20,13 @@ pub struct BlockArt {
 
 impl BlockArt {
     /// Returns a placeholder block of the given size filled with dim `░` chars.
-    pub fn placeholder(char_w: u16, char_h: u16) -> Self {
+    pub fn placeholder(char_w: u16, char_h: u16, fg: Color, bg: Color) -> Self {
         let row_str = "░".repeat(char_w as usize);
         let rows = (0..char_h)
             .map(|_| {
                 Line::from(Span::styled(
                     row_str.clone(),
-                    Style::default()
-                        .fg(Color::Rgb(40, 35, 28))
-                        .bg(Color::Rgb(18, 16, 14)),
+                    Style::default().fg(fg).bg(bg),
                 ))
             })
             .collect();
@@ -63,8 +60,7 @@ pub fn extract_lyrics(path: &str) -> Option<String> {
 
     // Try to get lyrics from common tag keys
     // Different formats use different keys: LYRICS, UNSYNCEDLYRICS, etc.
-    tag.get_string(&ItemKey::Lyrics)
-        .map(|s| s.to_string())
+    tag.get_string(&ItemKey::Lyrics).map(|s| s.to_string())
 }
 
 /// Extract cover art from `path` and write it to a temp file.
@@ -101,7 +97,7 @@ fn image_to_block_art(img: &DynamicImage, char_w: u16, char_h: u16) -> BlockArt 
     let mut rows: Vec<Line<'static>> = Vec::with_capacity(char_h as usize);
 
     for cell_row in 0..char_h as u32 {
-        let top_y    = cell_row * 2;
+        let top_y = cell_row * 2;
         let bottom_y = cell_row * 2 + 1;
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(char_w as usize);
@@ -111,8 +107,8 @@ fn image_to_block_art(img: &DynamicImage, char_w: u16, char_h: u16) -> BlockArt 
             let [r2, g2, b2, _] = resized.get_pixel(x, bottom_y).0;
 
             let style = Style::default()
-                .fg(Color::Rgb(r1, g1, b1))   // top pixel  → foreground
-                .bg(Color::Rgb(r2, g2, b2));   // bottom pixel → background
+                .fg(Color::Rgb(r1, g1, b1)) // top pixel  → foreground
+                .bg(Color::Rgb(r2, g2, b2)); // bottom pixel → background
 
             spans.push(Span::styled("▀", style));
         }

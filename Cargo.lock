@@ -1193,6 +1193,7 @@ dependencies = [
  "fuzzy-matcher",
  "image",
  "lofty",
+ "rand",
  "ratatui",
  "rodio",
  "rusqlite",

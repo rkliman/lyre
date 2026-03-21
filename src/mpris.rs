@@ -3,11 +3,10 @@
 /// Registers `org.mpris.MediaPlayer2.lyre` on the session bus.
 /// A background task watches for state changes and emits
 /// PropertiesChanged signals so GNOME/KDE pick up updates immediately.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
-use zbus::{connection, interface, zvariant::Value, zvariant::OwnedValue};
+use zbus::{connection, interface, zvariant::OwnedValue, zvariant::Value};
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -22,7 +21,7 @@ impl MprisPlaybackStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             MprisPlaybackStatus::Playing => "Playing",
-            MprisPlaybackStatus::Paused  => "Paused",
+            MprisPlaybackStatus::Paused => "Paused",
             MprisPlaybackStatus::Stopped => "Stopped",
         }
     }
@@ -30,27 +29,27 @@ impl MprisPlaybackStatus {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MprisState {
-    pub status:   MprisPlaybackStatus,
-    pub title:    String,
-    pub artist:   String,
-    pub album:    String,
-    pub length:   i64,   // µs
-    pub position: i64,   // µs
-    pub volume:   f64,
-    pub art_url:  Option<String>, // file:// URI for album art
+    pub status: MprisPlaybackStatus,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub length: i64,   // µs
+    pub position: i64, // µs
+    pub volume: f64,
+    pub art_url: Option<String>, // file:// URI for album art
 }
 
 impl Default for MprisState {
     fn default() -> Self {
         Self {
-            status:   MprisPlaybackStatus::Stopped,
-            title:    String::new(),
-            artist:   String::new(),
-            album:    String::new(),
-            length:   0,
+            status: MprisPlaybackStatus::Stopped,
+            title: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            length: 0,
             position: 0,
-            volume:   1.0,
-            art_url:  None,
+            volume: 1.0,
+            art_url: None,
         }
     }
 }
@@ -74,15 +73,35 @@ struct MediaPlayer2;
 #[interface(name = "org.mpris.MediaPlayer2")]
 impl MediaPlayer2 {
     fn raise(&self) {}
-    fn quit(&self)  {}
+    fn quit(&self) {}
 
-    #[zbus(property)] fn can_quit(&self)   -> bool { false }
-    #[zbus(property)] fn can_raise(&self)  -> bool { false }
-    #[zbus(property)] fn has_track_list(&self) -> bool { false }
-    #[zbus(property)] fn identity(&self)   -> &str { "lyre" }
-    #[zbus(property)] fn supported_uri_schemes(&self) -> Vec<String> { vec!["file".into()] }
-    #[zbus(property)] fn supported_mime_types(&self)  -> Vec<String> {
-        vec!["audio/mpeg".into(), "audio/flac".into(), "audio/x-wav".into()]
+    #[zbus(property)]
+    fn can_quit(&self) -> bool {
+        false
+    }
+    #[zbus(property)]
+    fn can_raise(&self) -> bool {
+        false
+    }
+    #[zbus(property)]
+    fn has_track_list(&self) -> bool {
+        false
+    }
+    #[zbus(property)]
+    fn identity(&self) -> &str {
+        "lyre"
+    }
+    #[zbus(property)]
+    fn supported_uri_schemes(&self) -> Vec<String> {
+        vec!["file".into()]
+    }
+    #[zbus(property)]
+    fn supported_mime_types(&self) -> Vec<String> {
+        vec![
+            "audio/mpeg".into(),
+            "audio/flac".into(),
+            "audio/x-wav".into(),
+        ]
     }
 }
 
@@ -96,12 +115,24 @@ struct MediaPlayer2Player {
 
 #[interface(name = "org.mpris.MediaPlayer2.Player")]
 impl MediaPlayer2Player {
-    async fn play(&self)       { let _ = self.cmd_tx.send(MprisCommand::Play); }
-    async fn pause(&self)      { let _ = self.cmd_tx.send(MprisCommand::Pause); }
-    async fn play_pause(&self) { let _ = self.cmd_tx.send(MprisCommand::PlayPause); }
-    async fn stop(&self)       { let _ = self.cmd_tx.send(MprisCommand::Stop); }
-    async fn next(&self)       { let _ = self.cmd_tx.send(MprisCommand::Next); }
-    async fn previous(&self)   { let _ = self.cmd_tx.send(MprisCommand::Previous); }
+    async fn play(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::Play);
+    }
+    async fn pause(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::Pause);
+    }
+    async fn play_pause(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::PlayPause);
+    }
+    async fn stop(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::Stop);
+    }
+    async fn next(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::Next);
+    }
+    async fn previous(&self) {
+        let _ = self.cmd_tx.send(MprisCommand::Previous);
+    }
     async fn open_uri(&self, _uri: String) {}
 
     #[zbus(property)]
@@ -109,11 +140,26 @@ impl MediaPlayer2Player {
         self.state.lock().unwrap().status.as_str().to_string()
     }
 
-    #[zbus(property)] fn loop_status(&self)   -> String { "None".into() }
-    #[zbus(property)] fn rate(&self)          -> f64    { 1.0 }
-    #[zbus(property)] fn minimum_rate(&self)  -> f64    { 1.0 }
-    #[zbus(property)] fn maximum_rate(&self)  -> f64    { 1.0 }
-    #[zbus(property)] fn shuffle(&self)       -> bool   { false }
+    #[zbus(property)]
+    fn loop_status(&self) -> String {
+        "None".into()
+    }
+    #[zbus(property)]
+    fn rate(&self) -> f64 {
+        1.0
+    }
+    #[zbus(property)]
+    fn minimum_rate(&self) -> f64 {
+        1.0
+    }
+    #[zbus(property)]
+    fn maximum_rate(&self) -> f64 {
+        1.0
+    }
+    #[zbus(property)]
+    fn shuffle(&self) -> bool {
+        false
+    }
 
     #[zbus(property)]
     fn metadata(&self) -> HashMap<String, OwnedValue> {
@@ -130,12 +176,30 @@ impl MediaPlayer2Player {
         self.state.lock().unwrap().position
     }
 
-    #[zbus(property)] fn can_go_next(&self)     -> bool { true }
-    #[zbus(property)] fn can_go_previous(&self) -> bool { true }
-    #[zbus(property)] fn can_play(&self)        -> bool { true }
-    #[zbus(property)] fn can_pause(&self)       -> bool { true }
-    #[zbus(property)] fn can_seek(&self)        -> bool { false }
-    #[zbus(property)] fn can_control(&self)     -> bool { true }
+    #[zbus(property)]
+    fn can_go_next(&self) -> bool {
+        true
+    }
+    #[zbus(property)]
+    fn can_go_previous(&self) -> bool {
+        true
+    }
+    #[zbus(property)]
+    fn can_play(&self) -> bool {
+        true
+    }
+    #[zbus(property)]
+    fn can_pause(&self) -> bool {
+        true
+    }
+    #[zbus(property)]
+    fn can_seek(&self) -> bool {
+        false
+    }
+    #[zbus(property)]
+    fn can_control(&self) -> bool {
+        true
+    }
 }
 
 // ── Metadata builder ──────────────────────────────────────────────────────────
@@ -147,30 +211,41 @@ fn build_metadata(s: &MprisState) -> HashMap<String, OwnedValue> {
     m.insert(
         "mpris:trackid".into(),
         OwnedValue::try_from(Value::new(
-            zbus::zvariant::ObjectPath::try_from("/org/lyre/track/1").unwrap()
-        )).unwrap(),
+            zbus::zvariant::ObjectPath::try_from("/org/lyre/track/1").unwrap(),
+        ))
+        .unwrap(),
     );
 
     if s.length > 0 {
-        m.insert("mpris:length".into(),
-            OwnedValue::try_from(Value::new(s.length)).unwrap());
+        m.insert(
+            "mpris:length".into(),
+            OwnedValue::try_from(Value::new(s.length)).unwrap(),
+        );
     }
     if !s.title.is_empty() {
-        m.insert("xesam:title".into(),
-            OwnedValue::try_from(Value::new(s.title.as_str())).unwrap());
+        m.insert(
+            "xesam:title".into(),
+            OwnedValue::try_from(Value::new(s.title.as_str())).unwrap(),
+        );
     }
     if !s.artist.is_empty() {
         // xesam:artist is an array of strings
-        m.insert("xesam:artist".into(),
-            OwnedValue::try_from(Value::new(vec![s.artist.as_str()])).unwrap());
+        m.insert(
+            "xesam:artist".into(),
+            OwnedValue::try_from(Value::new(vec![s.artist.as_str()])).unwrap(),
+        );
     }
     if !s.album.is_empty() {
-        m.insert("xesam:album".into(),
-            OwnedValue::try_from(Value::new(s.album.as_str())).unwrap());
+        m.insert(
+            "xesam:album".into(),
+            OwnedValue::try_from(Value::new(s.album.as_str())).unwrap(),
+        );
     }
     if let Some(ref url) = s.art_url {
-        m.insert("mpris:artUrl".into(),
-            OwnedValue::try_from(Value::new(url.as_str())).unwrap());
+        m.insert(
+            "mpris:artUrl".into(),
+            OwnedValue::try_from(Value::new(url.as_str())).unwrap(),
+        );
     }
     m
 }
@@ -182,13 +257,13 @@ pub async fn spawn() -> anyhow::Result<(
     tokio::sync::mpsc::UnboundedReceiver<MprisCommand>,
 )> {
     let (state_tx, mut state_rx) = watch::channel(MprisState::default());
-    let (cmd_tx, cmd_rx)         = tokio::sync::mpsc::unbounded_channel();
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Shared arc that the interface reads from and the notify task writes to
     let shared_state: Arc<Mutex<MprisState>> = Arc::new(Mutex::new(MprisState::default()));
 
     let player_iface = MediaPlayer2Player {
-        state:  Arc::clone(&shared_state),
+        state: Arc::clone(&shared_state),
         cmd_tx: cmd_tx.clone(),
     };
 

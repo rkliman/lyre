@@ -2,7 +2,6 @@
 ///
 /// Paths in m3u files can be absolute or relative to the playlist file.
 /// We always write them as absolute paths for simplicity.
-
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -42,7 +41,11 @@ impl Playlist {
             })
             .collect();
 
-        Ok(Self { name, path: path.to_string(), entries })
+        Ok(Self {
+            name,
+            path: path.to_string(),
+            entries,
+        })
     }
 
     /// Write the playlist back to disk. Entries are written as absolute paths.

@@ -55,9 +55,9 @@ impl Db {
     }
 
     pub fn distinct_albums(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT album FROM tracks WHERE album != '' ORDER BY album",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT album FROM tracks WHERE album != '' ORDER BY album")?;
         let albums: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
             .filter_map(|r| r.ok())
