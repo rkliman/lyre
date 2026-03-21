@@ -323,6 +323,7 @@ impl Player {
 
     pub fn next(&mut self) -> Result<()> {
         if self.queue.is_empty() {
+            self.stop();
             return Ok(());
         }
 
@@ -348,6 +349,7 @@ impl Player {
                     self.queue_index = self.shuffle_order[0];
                 } else {
                     // Loop Off: stop at end
+                    self.stop();
                     return Ok(());
                 }
             } else {
@@ -364,6 +366,7 @@ impl Player {
                     self.queue_index = 0;
                 } else {
                     // Loop Off: stop at end
+                    self.stop();
                     return Ok(());
                 }
             } else {

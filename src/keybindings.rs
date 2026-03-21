@@ -31,7 +31,6 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub struct Keybinding {
     pub keys: Vec<KeyCode>,
-    pub description: &'static str,
     pub action: Action,
     pub context: Context,
 }
@@ -50,10 +49,9 @@ pub struct Keybindings {
 }
 
 macro_rules! kb {
-    ($keys:expr, $desc:expr, $action:expr, $ctx:expr) => {
+    ($keys:expr, $action:expr, $ctx:expr) => {
         Keybinding {
             keys: $keys,
-            description: $desc,
             action: $action,
             context: $ctx,
         }
@@ -67,78 +65,78 @@ impl Keybindings {
     pub fn new() -> Self {
         let all = vec![
             // Navigation
-            kb!(vec![Tab], "Cycle panels", Action::CycleForward, Global),
-            kb!(vec![BackTab], "Cycle panels", Action::CycleBackward, Global),
-            kb!(vec![Char('1')], "Jump to sidebar / queue / tracks", Action::JumpToSidebar, Global),
-            kb!(vec![Char('2')], "Jump to sidebar / queue / tracks", Action::JumpToTracks, Global),
-            kb!(vec![Char('3')], "Jump to sidebar / queue / tracks", Action::JumpToQueue, Global),
-            kb!(vec![Char('A')], "Toggle album art window in sidebar", Action::ToggleArtWindow, Global),
-            kb!(vec![Char('L')], "Toggle lyrics panel", Action::ToggleLyrics, Global),
-            kb!(vec![Char('j'), Down], "Move up / down", Action::MoveDown, Global),
-            kb!(vec![Char('k'), Up], "Move up / down", Action::MoveUp, Global),
-            kb!(vec![Char('g'), Home], "Go to top / bottom", Action::GoToTop, Global),
-            kb!(vec![Char('G'), End], "Go to top / bottom", Action::GoToBottom, Global),
-            kb!(vec![Char('u'), PageUp], "Page up / down (all panels)", Action::PageUp, Global),
-            kb!(vec![Char('d'), PageDown], "Page up / down (all panels)", Action::PageDown, Global),
-            kb!(vec![Char('h'), Left], "Switch panels", Action::MoveLeft, Global),
-            kb!(vec![Char('l'), Right], "Switch panels", Action::MoveRight, Global),
+            kb!(vec![Tab], Action::CycleForward, Global),
+            kb!(vec![BackTab], Action::CycleBackward, Global),
+            kb!(vec![Char('1')], Action::JumpToSidebar, Global),
+            kb!(vec![Char('2')], Action::JumpToTracks, Global),
+            kb!(vec![Char('3')], Action::JumpToQueue, Global),
+            kb!(vec![Char('A')], Action::ToggleArtWindow, Global),
+            kb!(vec![Char('L')], Action::ToggleLyrics, Global),
+            kb!(vec![Char('j'), Down], Action::MoveDown, Global),
+            kb!(vec![Char('k'), Up], Action::MoveUp, Global),
+            kb!(vec![Char('g'), Home], Action::GoToTop, Global),
+            kb!(vec![Char('G'), End], Action::GoToBottom, Global),
+            kb!(vec![Char('u'), PageUp], Action::PageUp, Global),
+            kb!(vec![Char('d'), PageDown], Action::PageDown, Global),
+            kb!(vec![Char('h'), Left], Action::MoveLeft, Global),
+            kb!(vec![Char('l'), Right], Action::MoveRight, Global),
 
             // Playback
-            kb!(vec![Enter], "Select / play", Action::Enter, Global),
-            kb!(vec![Char(' ')], "Toggle pause", Action::PlayPause, Global),
-            kb!(vec![Char('n')], "Next track in queue", Action::Next, Global),
-            kb!(vec![Char('p')], "Previous track in queue", Action::Previous, Global),
-            kb!(vec![Char('s')], "Stop", Action::Stop, Global),
-            kb!(vec![Char('+'), Char('=')], "Volume up / down", Action::VolumeUp, Global),
-            kb!(vec![Char('-')], "Volume up / down", Action::VolumeDown, Global),
-            kb!(vec![Char('.')], "Seek forward / backward (5 seconds)", Action::SeekForward, Global),
-            kb!(vec![Char(',')], "Seek forward / backward (5 seconds)", Action::SeekBackward, Global),
-            kb!(vec![Char('z')], "Toggle shuffle", Action::ToggleShuffle, Global),
-            kb!(vec![Char('o')], "Toggle loop (off → all → one)", Action::ToggleLoop, Global),
+            kb!(vec![Enter], Action::Enter, Global),
+            kb!(vec![Char(' ')], Action::PlayPause, Global),
+            kb!(vec![Char('n')], Action::Next, Global),
+            kb!(vec![Char('p')], Action::Previous, Global),
+            kb!(vec![Char('s')], Action::Stop, Global),
+            kb!(vec![Char('+'), Char('=')], Action::VolumeUp, Global),
+            kb!(vec![Char('-')], Action::VolumeDown, Global),
+            kb!(vec![Char('.')], Action::SeekForward, Global),
+            kb!(vec![Char(',')], Action::SeekBackward, Global),
+            kb!(vec![Char('z')], Action::ToggleShuffle, Global),
+            kb!(vec![Char('o')], Action::ToggleLoop, Global),
 
             // Queue
-            kb!(vec![Char('a')], "Add selected track to queue", Action::AddToQueue, Panel(Panel::TrackList)),
-            kb!(vec![Char('A')], "Add all visible tracks to queue", Action::AddAllToQueue, Panel(Panel::TrackList)),
-            kb!(vec![Char('x'), Delete], "Remove selected from queue", Action::RemoveFromQueue, Panel(Panel::Queue)),
-            kb!(vec![Char('c')], "Clear entire queue", Action::ClearQueue, Panel(Panel::Queue)),
+            kb!(vec![Char('a')], Action::AddToQueue, Panel(Panel::TrackList)),
+            kb!(vec![Char('A')], Action::AddAllToQueue, Panel(Panel::TrackList)),
+            kb!(vec![Char('x'), Delete], Action::RemoveFromQueue, Panel(Panel::Queue)),
+            kb!(vec![Char('c')], Action::ClearQueue, Panel(Panel::Queue)),
 
             // Library
-            kb!(vec![Char('S')], "Cycle sort field (title→artist→album→year→genre→dur)", Action::CycleSort, Global),
-            kb!(vec![Char('R')], "Toggle sort order (asc / desc)", Action::ToggleSortOrder, Global),
-            kb!(vec![Char('/')], "Activate search bar (always visible above track list)", Action::EnterSearch, Global),
+            kb!(vec![Char('S')], Action::CycleSort, Global),
+            kb!(vec![Char('R')], Action::ToggleSortOrder, Global),
+            kb!(vec![Char('/')], Action::EnterSearch, Global),
 
             // Playlists
-            kb!(vec![Char('N')], "Create a new empty playlist", Action::NewPlaylist, Panel(Panel::Sidebar)),
-            kb!(vec![Char('P')], "Add track to an existing playlist", Action::AddToPlaylist, Global),
-            kb!(vec![Char('x'), Delete], "Remove track from playlist (saves immediately)", Action::RemoveFromPlaylist, Panel(Panel::TrackList)),
-            kb!(vec![Char('K')], "Move selected track up", Action::MoveTrackUp, Panel(Panel::TrackList)),
-            kb!(vec![Char('J')], "Move selected track down", Action::MoveTrackDown, Panel(Panel::TrackList)),
+            kb!(vec![Char('N')], Action::NewPlaylist, Panel(Panel::Sidebar)),
+            kb!(vec![Char('P')], Action::AddToPlaylist, Global),
+            kb!(vec![Char('x'), Delete], Action::RemoveFromPlaylist, Panel(Panel::TrackList)),
+            kb!(vec![Char('K')], Action::MoveTrackUp, Panel(Panel::TrackList)),
+            kb!(vec![Char('J')], Action::MoveTrackDown, Panel(Panel::TrackList)),
 
             // Other
-            kb!(vec![Char('?')], "Toggle this help overlay", Action::ToggleHelp, Global),
-            kb!(vec![Char('q'), Char('Q')], "Quit", Action::Quit, Global),
-            kb!(vec![Char('r')], "Reload lyrics", Action::LyricsReload, Panel(Panel::Lyrics)),
+            kb!(vec![Char('?')], Action::ToggleHelp, Global),
+            kb!(vec![Char('q'), Char('Q')], Action::Quit, Global),
+            kb!(vec![Char('r')], Action::LyricsReload, Panel(Panel::Lyrics)),
 
             // Search mode
-            kb!(vec![Esc], "Exit search", Action::SearchExit, Search),
-            kb!(vec![Enter], "Confirm search", Action::SearchConfirm, Search),
-            kb!(vec![Backspace], "Delete character", Action::SearchBackspace, Search),
+            kb!(vec![Esc], Action::SearchExit, Search),
+            kb!(vec![Enter], Action::SearchConfirm, Search),
+            kb!(vec![Backspace], Action::SearchBackspace, Search),
 
             // Help overlay
-            kb!(vec![Esc, Char('?')], "Close help", Action::HelpClose, Help),
-            kb!(vec![Up, Char('k')], "Scroll up", Action::HelpScroll(-1), Help),
-            kb!(vec![Down, Char('j')], "Scroll down", Action::HelpScroll(1), Help),
-            kb!(vec![PageUp, Char('u')], "Scroll up (page)", Action::HelpScroll(-10), Help),
-            kb!(vec![PageDown, Char('d')], "Scroll down (page)", Action::HelpScroll(10), Help),
-            kb!(vec![Char('g')], "Go to top", Action::GoToTop, Help),
-            kb!(vec![Char('G')], "Go to bottom", Action::GoToBottom, Help),
+            kb!(vec![Esc, Char('?')], Action::HelpClose, Help),
+            kb!(vec![Up, Char('k')], Action::HelpScroll(-1), Help),
+            kb!(vec![Down, Char('j')], Action::HelpScroll(1), Help),
+            kb!(vec![PageUp, Char('u')], Action::HelpScroll(-10), Help),
+            kb!(vec![PageDown, Char('d')], Action::HelpScroll(10), Help),
+            kb!(vec![Char('g')], Action::GoToTop, Help),
+            kb!(vec![Char('G')], Action::GoToBottom, Help),
 
             // Overlay mode
-            kb!(vec![Esc], "Cancel overlay", Action::OverlayCancel, Overlay),
-            kb!(vec![Enter], "Confirm overlay", Action::OverlayConfirm, Overlay),
-            kb!(vec![Backspace], "Delete character", Action::OverlayBackspace, Overlay),
-            kb!(vec![Up, Char('k')], "Navigate up", Action::OverlayNavigate(-1), Overlay),
-            kb!(vec![Down, Char('j')], "Navigate down", Action::OverlayNavigate(1), Overlay),
+            kb!(vec![Esc], Action::OverlayCancel, Overlay),
+            kb!(vec![Enter], Action::OverlayConfirm, Overlay),
+            kb!(vec![Backspace], Action::OverlayBackspace, Overlay),
+            kb!(vec![Up, Char('k')], Action::OverlayNavigate(-1), Overlay),
+            kb!(vec![Down, Char('j')], Action::OverlayNavigate(1), Overlay),
         ];
 
         Self { all }
@@ -220,7 +218,7 @@ impl Keybindings {
         vec![
             ("Navigation", vec![
                 (ks(&[CycleForward, CycleBackward]), "Cycle panels"),
-                (ks(&[JumpToSidebar, JumpToQueue, JumpToTracks]), "Jump to sidebar / queue / tracks"),
+                (ks(&[JumpToSidebar, JumpToTracks, JumpToQueue]), "Jump to sidebar / tracks / queue"),
                 (k(ToggleArtWindow), "Toggle album art window in sidebar"),
                 (k(ToggleLyrics), "Toggle lyrics panel"),
                 (ks(&[MoveUp, MoveDown]), "Move up / down"),
