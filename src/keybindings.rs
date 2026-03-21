@@ -70,7 +70,7 @@ impl Keybindings {
             kb!(vec![Char('1')], Action::JumpToSidebar, Global),
             kb!(vec![Char('2')], Action::JumpToTracks, Global),
             kb!(vec![Char('3')], Action::JumpToQueue, Global),
-            kb!(vec![Char('A')], Action::ToggleArtWindow, Global),
+            kb!(vec![Char('4')], Action::ToggleArtWindow, Global),
             kb!(vec![Char('L')], Action::ToggleLyrics, Global),
             kb!(vec![Char('j'), Down], Action::MoveDown, Global),
             kb!(vec![Char('k'), Up], Action::MoveUp, Global),
@@ -88,7 +88,7 @@ impl Keybindings {
             kb!(vec![Char('p')], Action::Previous, Global),
             kb!(vec![Char('s')], Action::Stop, Global),
             kb!(vec![Char('+'), Char('=')], Action::VolumeUp, Global),
-            kb!(vec![Char('-')], Action::VolumeDown, Global),
+            kb!(vec![Char('-'), Char('_')], Action::VolumeDown, Global),
             kb!(vec![Char('.')], Action::SeekForward, Global),
             kb!(vec![Char(',')], Action::SeekBackward, Global),
             kb!(vec![Char('z')], Action::ToggleShuffle, Global),
@@ -114,7 +114,7 @@ impl Keybindings {
 
             // Other
             kb!(vec![Char('?')], Action::ToggleHelp, Global),
-            kb!(vec![Char('q'), Char('Q')], Action::Quit, Global),
+            kb!(vec![Char('q')], Action::Quit, Global),
             kb!(vec![Char('r')], Action::LyricsReload, Panel(Panel::Lyrics)),
 
             // Search mode
