@@ -29,7 +29,7 @@ struct FilesConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct UiColorsConfig {
+pub(crate) struct UiColorsConfig {
     #[serde(default = "default_foreground")]
     foreground: String,
     #[serde(default = "default_background")]
@@ -265,7 +265,6 @@ impl ColorScheme {
 }
 
 pub struct App {
-    pub config: Config,
     pub colors: ColorScheme,
     pub keybindings: Keybindings,
     pub all_tracks: Vec<Track>,
@@ -344,7 +343,6 @@ impl App {
         let keybindings = Keybindings::new();
 
         let mut app = Self {
-            config,
             colors,
             keybindings,
             all_tracks,

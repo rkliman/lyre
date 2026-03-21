@@ -744,6 +744,11 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
 
     // Outer block
     let block = Block::default()
+        .title(Span::styled(
+            format!(" {} ", "Now Playing"),
+            Style::default()
+                .fg(c.dim)
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(c.accent2))
@@ -752,8 +757,8 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     // ── Horizontal split: [art | info | progress] ────────────────────────────
-    // Art is 10 chars wide + 2 for centering padding; info takes ~50%; progress takes the rest.
-    let art_area_w = 12u16; // 10 block cols + 2 for centering
+    // Art is 10 chars wide + 4 for centering padding; info takes ~50%; progress takes the rest.
+    let art_area_w = 9u16; // 10 block cols
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -780,7 +785,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     if art_rect.height > 0 {
         // Always use block art for the player bar
         let art = app.album_art.as_ref().cloned().unwrap_or_else(|| {
-            crate::art::BlockArt::placeholder(10, art_h, c.art_border, c.art_bg)
+            crate::art::BlockArt::placeholder(8, art_h, c.art_border, c.art_bg)
         });
 
         for (i, row) in art.rows.iter().enumerate().take(art_rect.height as usize) {
