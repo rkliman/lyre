@@ -1,12 +1,13 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap,
     },
     Frame,
 };
+use ratatui_image::StatefulImage;
 
 use crate::{app::App, types::LoopMode};
 use crate::types::format_duration;
@@ -160,12 +161,107 @@ fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {
         .style(Style::default().bg(c.background))
 }
 
-fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
-    let active = app.active_panel == Panel::Sidebar;
-    let block = panel_block("Library [1]", active, app);
+    let block = Block::default()
+        .title(Span::styled(
+            " Album Art [5] ",
+            Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(c.accent2))
+        .style(Style::default().bg(c.background));
+
     let inner = block.inner(area);
     f.render_widget(block, area);
+
+    // Use the full inner space for the art
+    let art_rect = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: inner.height,
+    };
+
+    if art_rect.width > 0 && art_rect.height > 0 {
+        if let Some(img) = app.album_art_image.as_ref() {
+            // Try to use terminal graphics if available
+            if let Some(picker) = app.image_picker.as_ref() {
+                // Clone the picker to get a mutable reference
+                let mut picker_clone = picker.clone();
+                // Create a resizable protocol for rendering with terminal graphics
+                let mut protocol = picker_clone.new_resize_protocol(img.clone());
+                let image_widget = StatefulImage::new(None);
+                f.render_stateful_widget(image_widget, art_rect, &mut protocol);
+            } else {
+                // Fall back to block art - use cache if dimensions haven't changed
+                let current_dims = (art_rect.width, art_rect.height);
+                if app.cached_art_window_dims != current_dims || app.cached_art_window_block.is_none() {
+                    // Dimensions changed or no cache - regenerate
+                    let art = crate::art::render_block_art_from_image(
+                        img,
+                        art_rect.width,
+                        art_rect.height,
+                    );
+                    app.cached_art_window_block = Some(art);
+                    app.cached_art_window_dims = current_dims;
+                }
+
+                // Render the cached block art
+                if let Some(art) = &app.cached_art_window_block {
+                    for (i, row) in art.rows.iter().enumerate().take(art_rect.height as usize) {
+                        let row_rect = Rect {
+                            x: art_rect.x,
+                            y: art_rect.y + i as u16,
+                            width: art_rect.width,
+                            height: 1,
+                        };
+                        f.render_widget(
+                            Paragraph::new(row.clone()).style(Style::default().bg(c.background)),
+                            row_rect,
+                        );
+                    }
+                }
+            }
+        } else {
+            // No album art available - show placeholder
+            let placeholder = Paragraph::new("No album art available\n\nPress 5 or A to hide")
+                .style(Style::default().fg(c.dim))
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true });
+            f.render_widget(placeholder, art_rect);
+        }
+    }
+}
+
+fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
+    let c = app.colors.clone();
+    let active = app.active_panel == Panel::Sidebar;
+
+    // Split sidebar area if art window is visible
+    let (sidebar_area, art_area_opt) = if app.art_window_visible {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(50), // art window
+                Constraint::Percentage(50), // library list
+            ])
+            .split(area);
+        (split[1], Some(split[0]))
+    } else {
+        (area, None)
+    };
+
+    // Render art window if visible
+    if let Some(art_area) = art_area_opt {
+        render_art_window(f, app, art_area);
+    }
+
+    // Render library list
+    let block = panel_block("Library [1]", active, app);
+    let inner = block.inner(sidebar_area);
+    f.render_widget(block, sidebar_area);
 
     let items: Vec<ListItem> = app
         .sidebar_items
@@ -625,30 +721,33 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     // ── Horizontal split: [art | info | progress] ────────────────────────────
-    // Art is 10 chars wide + 1 gap; info takes ~55%; progress takes the rest.
-    let art_w = 11u16; // 10 block cols + 1 padding
+    // Art is 10 chars wide + 2 for centering padding; info takes ~50%; progress takes the rest.
+    let art_area_w = 12u16; // 10 block cols + 2 for centering
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(art_w),  // album art
-            Constraint::Percentage(50), // now playing info
-            Constraint::Min(10),        // progress + controls
+            Constraint::Length(art_area_w),  // album art
+            Constraint::Percentage(50),       // now playing info
+            Constraint::Min(10),              // progress + controls
         ])
         .split(inner);
 
     // ── Album art ─────────────────────────────────────────────────────────────
     let art_area = cols[0];
-    // Vertically centre the 3-row art within the available height
+    // Center the art within the available area (both horizontally and vertically)
+    let art_w = 10u16;
     let art_h = 3u16;
+    let h_pad = (art_area.width.saturating_sub(art_w)) / 2;
     let v_pad = (art_area.height.saturating_sub(art_h)) / 2;
     let art_rect = Rect {
-        x: art_area.x,
+        x: art_area.x + h_pad,
         y: art_area.y + v_pad,
-        width: 10,
+        width: art_w,
         height: art_h.min(art_area.height),
     };
 
     if art_rect.height > 0 {
+        // Always use block art for the player bar
         let art = app.album_art.as_ref().cloned().unwrap_or_else(|| {
             crate::art::BlockArt::placeholder(10, art_h, c.art_border, c.art_bg)
         });
@@ -868,6 +967,12 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
                     "r",
                     "Reload lyrics for current track (when in lyrics panel)",
                 ),
+            ],
+        ),
+        (
+            "Album Art",
+            vec![
+                ("5  or  A", "Toggle album art window in sidebar"),
             ],
         ),
         (

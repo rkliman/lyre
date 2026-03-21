@@ -3,6 +3,8 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use image::DynamicImage;
+use ratatui_image::picker::Picker;
 use serde::Deserialize;
 use shellexpand;
 use std::collections::HashMap;
@@ -298,9 +300,14 @@ pub struct App {
     pub player: Player,
     pub status_message: Option<String>,
     pub album_art: Option<crate::art::BlockArt>,
+    pub album_art_image: Option<DynamicImage>,
     pub album_art_path: Option<String>,
     // Cached file:// URI for MPRIS (avoids re-extracting on every tick)
     pub mpris_art_url: Option<String>,
+    pub image_picker: Option<Picker>,
+    // Cached block art for art window (regenerated only when dimensions change)
+    pub cached_art_window_block: Option<crate::art::BlockArt>,
+    pub cached_art_window_dims: (u16, u16),
     pub overlay: Overlay,
     pub show_help: bool,
     pub help_scroll: usize,
@@ -308,6 +315,7 @@ pub struct App {
     pub lyrics_content: Option<String>,
     pub lyrics_scroll: usize,
     pub lyrics_track_path: Option<String>,
+    pub art_window_visible: bool,
 }
 
 impl App {
@@ -332,6 +340,7 @@ impl App {
         sidebar_expanded.insert("Playlists".to_string(), false);
 
         let player = Player::new().expect("Failed to initialize audio.");
+        let image_picker = crate::art::create_picker();
 
         let mut app = Self {
             config,
@@ -360,8 +369,12 @@ impl App {
             player,
             status_message: None,
             album_art: None,
+            album_art_image: None,
             album_art_path: None,
             mpris_art_url: None,
+            image_picker,
+            cached_art_window_block: None,
+            cached_art_window_dims: (0, 0),
             overlay: Overlay::None,
             show_help: false,
             help_scroll: 0,
@@ -369,6 +382,7 @@ impl App {
             lyrics_content: None,
             lyrics_scroll: 0,
             lyrics_track_path: None,
+            art_window_visible: false,
         };
         app.rebuild_sidebar();
         app.apply_sort();
@@ -467,6 +481,7 @@ impl App {
             KeyCode::Char('2') => self.active_panel = Panel::TrackList,
             KeyCode::Char('3') => self.active_panel = Panel::Queue,
             KeyCode::Char('4') | KeyCode::Char('L') => self.toggle_lyrics_panel(),
+            KeyCode::Char('5') | KeyCode::Char('A') => self.toggle_art_window(),
             KeyCode::Char(' ') => {
                 if self.player.state == PlayerState::Stopped {
                     self.play_selected();
@@ -1205,6 +1220,10 @@ impl App {
         }
     }
 
+    fn toggle_art_window(&mut self) {
+        self.art_window_visible = !self.art_window_visible;
+    }
+
     fn enter_search(&mut self) {
         self.search_mode = true;
         self.track_context = TrackContext::Library;
@@ -1376,8 +1395,11 @@ impl App {
             Some(p) => p,
             None => {
                 self.album_art = None;
+                self.album_art_image = None;
                 self.album_art_path = None;
                 self.mpris_art_url = None;
+                self.cached_art_window_block = None;
+                self.cached_art_window_dims = (0, 0);
                 return;
             }
         };
@@ -1386,8 +1408,19 @@ impl App {
         }
         self.album_art_path = Some(path.clone());
         self.mpris_art_url = None; // will be lazily re-extracted by main.rs
-        self.album_art = crate::art::extract_cover_bytes(&path)
-            .and_then(|bytes| crate::art::render_block_art(&bytes, char_w, char_h));
+        // Clear cached art window block art since track changed
+        self.cached_art_window_block = None;
+        self.cached_art_window_dims = (0, 0);
+
+        // Load album art: both as DynamicImage (for terminal graphics) and BlockArt (fallback)
+        if let Some(bytes) = crate::art::extract_cover_bytes(&path) {
+            self.album_art_image = crate::art::load_cover_image(&bytes);
+            // Small version for player bar
+            self.album_art = crate::art::render_block_art(&bytes, char_w, char_h);
+        } else {
+            self.album_art = None;
+            self.album_art_image = None;
+        }
     }
 }
 

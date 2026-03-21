@@ -1,7 +1,10 @@
-/// Album art extraction and Unicode block-art rendering.
+/// Album art extraction and rendering.
 ///
-/// Each terminal "pixel" is one character cell. Using the upper-half-block
-/// character `▀` we can pack two vertical pixels per cell:
+/// Supports multiple rendering backends:
+/// - Terminal graphics protocols (Kitty, iTerm2, Sixel) for high-quality images
+/// - Unicode block-art fallback for terminals without graphics support
+///
+/// Block-art uses the upper-half-block character `▀` to pack two vertical pixels per cell:
 ///   - foreground colour  = top pixel
 ///   - background colour  = bottom pixel
 ///
@@ -11,6 +14,7 @@ use lofty::file::TaggedFileExt;
 use lofty::picture::PictureType;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+use ratatui_image::picker::Picker;
 
 /// A rendered block-art image: rows of styled Spans ready for ratatui.
 #[derive(Clone)]
@@ -82,9 +86,27 @@ pub fn extract_cover_to_temp_file(track_path: &str) -> Option<String> {
     std::fs::write(&tmp_path, &bytes).ok()?;
     Some(format!("file://{}", tmp_path))
 }
+/// Load cover art from bytes into a DynamicImage for rendering with terminal graphics.
+pub fn load_cover_image(bytes: &[u8]) -> Option<DynamicImage> {
+    image::load_from_memory(bytes).ok()
+}
+
+/// Render album art as Unicode block art (fallback for terminals without graphics support).
 pub fn render_block_art(bytes: &[u8], char_w: u16, char_h: u16) -> Option<BlockArt> {
     let img = image::load_from_memory(bytes).ok()?;
     Some(image_to_block_art(&img, char_w, char_h))
+}
+
+/// Render album art from a DynamicImage as Unicode block art.
+/// Use this when you already have the image loaded and want to generate block art at a specific size.
+pub fn render_block_art_from_image(img: &DynamicImage, char_w: u16, char_h: u16) -> BlockArt {
+    image_to_block_art(img, char_w, char_h)
+}
+
+/// Create a Picker for detecting terminal graphics capabilities.
+/// This should be called once at application startup.
+pub fn create_picker() -> Option<Picker> {
+    Picker::from_query_stdio().ok()
 }
 
 fn image_to_block_art(img: &DynamicImage, char_w: u16, char_h: u16) -> BlockArt {
