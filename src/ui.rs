@@ -31,8 +31,9 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
         .split(inner);
 
     // ── Left: glyph + app name ────────────────────────────────────────────────
-    // The lyre glyph (𝄞 is a musical symbol — U+1D11E treble clef,
-    // but or the lyre emoji reads better in most terminals)
+    use crate::keybindings::Action;
+    let help_key = app.keybindings.keys_for_action(Action::ToggleHelp);
+
     let left = Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(
@@ -47,7 +48,7 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("─", Style::default().fg(c.dim)),
         Span::styled(" ", Style::default()),
         Span::styled(
-            "a music player & library manager. press '?' for help.",
+            format!("a music player & library manager. press '{}' for help.", help_key),
             Style::default().fg(c.dim),
         ),
     ]);
@@ -163,9 +164,11 @@ fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {
 
 fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
+    use crate::keybindings::Action;
+    let toggle_key = app.keybindings.keys_for_action(Action::ToggleArtWindow);
     let block = Block::default()
         .title(Span::styled(
-            " Album Art [4] ",
+            format!(" Album Art [{}] ", toggle_key),
             Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -234,7 +237,9 @@ fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
             }
         } else {
             // No album art available - show placeholder
-            let placeholder = Paragraph::new("No album art available\n\nPress 4 or A to hide")
+            use crate::keybindings::Action;
+            let toggle_key = app.keybindings.keys_for_action(Action::ToggleArtWindow);
+            let placeholder = Paragraph::new(format!("No album art available\n\nPress {} to hide", toggle_key))
                 .style(Style::default().fg(c.dim))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true });
@@ -267,7 +272,10 @@ fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // Render library list
-    let block = panel_block("Library [1]", active, app);
+    use crate::keybindings::Action;
+    let jump_key = app.keybindings.keys_for_action(Action::JumpToSidebar);
+    let title = format!("Library [{}]", jump_key);
+    let block = panel_block(&title, active, app);
     let inner = block.inner(sidebar_area);
     f.render_widget(block, sidebar_area);
 
@@ -325,14 +333,22 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let c = app.colors.clone();
     let active = app.active_panel == Panel::TrackList;
 
+    use crate::keybindings::Action;
     // Build title — show playlist name or sort info
     let title_str = match &app.track_context {
         TrackContext::Playlist(name) => {
-            format!(" ♪ {} [playlist]  K/J:move  x:remove  P:add-to ", name)
+            let move_up_key = app.keybindings.keys_for_action(Action::MoveTrackUp);
+            let move_down_key = app.keybindings.keys_for_action(Action::MoveTrackDown);
+            let remove_key = app.keybindings.keys_for_action(Action::RemoveFromPlaylist);
+            let add_key = app.keybindings.keys_for_action(Action::AddToPlaylist);
+            format!(" ♪ {} [playlist]  {}/{}:move  {}:remove  {}:add-to ",
+                name, move_up_key, move_down_key, remove_key, add_key)
         }
         TrackContext::Library => {
+            let jump_key = app.keybindings.keys_for_action(Action::JumpToTracks);
             format!(
-                " Tracks [3] — {} {} ",
+                " Tracks [{}] — {} {} ",
+                jump_key,
                 app.sort_field.label(),
                 if app.sort_order == crate::types::SortOrder::Asc {
                     "↑"
@@ -651,13 +667,18 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     let c = &app.colors;
     let active = app.active_panel == Panel::Queue;
-    let title = format!("Queue [2] ({} tracks)", app.player.queue.len());
+    use crate::keybindings::Action;
+    let jump_key = app.keybindings.keys_for_action(Action::JumpToQueue);
+    let title = format!("Queue [{}] ({} tracks)", jump_key, app.player.queue.len());
     let block = panel_block(&title, active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     if app.player.queue.is_empty() {
-        let empty = Paragraph::new("No tracks in queue\n\nPress [a] on a track\nor [A] to add all")
+        use crate::keybindings::Action;
+        let add_key = app.keybindings.keys_for_action(Action::AddToQueue);
+        let add_all_key = app.keybindings.keys_for_action(Action::AddAllToQueue);
+        let empty = Paragraph::new(format!("No tracks in queue\n\nPress [{}] on a track\nor [{}] to add all", add_key, add_all_key))
             .style(Style::default().fg(c.dim))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
@@ -830,7 +851,10 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         let idle = Paragraph::new("■ lyre — no track playing").style(Style::default().fg(c.dim));
         f.render_widget(idle, left_rows[0]);
 
-        let hint = Paragraph::new("  Press [Enter] to play · [?] for help")
+        use crate::keybindings::Action;
+        let play_key = app.keybindings.keys_for_action(Action::PlayPause);
+        let help_key = app.keybindings.keys_for_action(Action::ToggleHelp);
+        let hint = Paragraph::new(format!("  Press [{}] to play · [{}] for help", play_key, help_key))
             .style(Style::default().fg(c.dim));
         f.render_widget(hint, left_rows[1]);
     }
@@ -854,8 +878,17 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or(0);
     let progress = app.player.progress();
 
+    use crate::keybindings::Action;
     let status = Span::styled(
-        "space:play/pause  n:next  p:prev  z:shuffle  o:loop  ?:help",
+        format!(
+            "{}:play/pause  {}:next  {}:prev  {}:shuffle  {}:loop  {}:help",
+            app.keybindings.keys_for_action(Action::PlayPause),
+            app.keybindings.keys_for_action(Action::Next),
+            app.keybindings.keys_for_action(Action::Previous),
+            app.keybindings.keys_for_action(Action::ToggleShuffle),
+            app.keybindings.keys_for_action(Action::ToggleLoop),
+            app.keybindings.keys_for_action(Action::ToggleHelp),
+        ),
         Style::default().fg(c.dim),
     );
     f.render_widget(
@@ -936,90 +969,20 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
     let content_area = layout[0];
     let footer_area = layout[1];
 
-    // All sections in one list
-    let sections: Vec<(&str, Vec<(&str, &str)>)> = vec![
-        (
-            "Navigation",
-            vec![
-                ("Tab / Shift-Tab", "Cycle panels"),
-                ("1 / 2 / 3", "Jump to sidebar / queue / tracks"),
-                ("4  or  A", "Toggle album art window in sidebar"),
-                ("5  or  L", "Toggle lyrics panel"),
-                ("j / k  or  ↑ / ↓", "Move up / down"),
-                ("g / G", "Go to top / bottom"),
-                ("u / d  or  PgUp/PgDn", "Page up / down (all panels)"),
-                ("h / l  or  ← / →", "Switch panels"),
-                (
-                    "→ / l  on section header",
-                    "Expand  (or focus tracks if open)",
-                ),
-                ("← / h  on section header", "Collapse"),
-            ],
-        ),
-        (
-            "Playback",
-            vec![
-                ("Enter  or  Space", "Play selected / toggle pause"),
-                ("n", "Next track in queue"),
-                ("p", "Previous track in queue"),
-                ("s", "Stop"),
-                ("+ / -", "Volume up / down"),
-                (". / ,", "Seek forward / backward (5 seconds)"),
-                ("z", "Toggle shuffle"),
-                ("o", "Toggle loop (off → all → one)"),
-            ],
-        ),
-        (
-            "Queue",
-            vec![
-                ("a", "Add selected track to queue"),
-                ("A", "Add all visible tracks to queue"),
-                ("x / Del", "Remove selected from queue"),
-                ("c", "Clear entire queue"),
-            ],
-        ),
-        (
-            "Library",
-            vec![
-                ("S", "Cycle sort field (title→artist→album→year→genre→dur)"),
-                ("R", "Toggle sort order (asc / desc)"),
-                ("/", "Activate search bar (always visible above track list)"),
-                (
-                    "Esc",
-                    "Deactivate search bar  (results stay if query non-empty)",
-                ),
-            ],
-        ),
-        (
-            "Playlists",
-            vec![
-                ("N  on Playlists header", "Create a new empty playlist"),
-                ("P  on any track", "Add track to an existing playlist"),
-                (
-                    "x / Del  in playlist",
-                    "Remove track from playlist (saves immediately)",
-                ),
-                ("K  in playlist", "Move selected track up"),
-                ("J  in playlist", "Move selected track down"),
-            ],
-        ),
-        (
-            "Other",
-            vec![("?", "Toggle this help overlay"), ("q", "Quit")],
-        ),
-    ];
+    // Get sections from keybindings
+    let sections = app.keybindings.help_sections();
 
     // Build all lines
     let mut all_lines: Vec<Line> = Vec::new();
     for (section, keys) in &sections {
         all_lines.push(Line::from(Span::styled(
-            *section,
+            section.to_string(),
             Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         )));
         for (key, desc) in keys {
             all_lines.push(Line::from(vec![
                 Span::styled(format!("  {:28}", key), Style::default().fg(c.foreground)),
-                Span::styled(*desc, Style::default().fg(c.dim)),
+                Span::styled(desc.to_string(), Style::default().fg(c.dim)),
             ]));
         }
         all_lines.push(Line::from(""));
@@ -1197,7 +1160,10 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
     let active = app.active_panel == Panel::Lyrics;
 
-    let block = panel_block("Lyrics [5]", active, app);
+    use crate::keybindings::Action;
+    let toggle_key = app.keybindings.keys_for_action(Action::ToggleLyrics);
+    let title = format!("Lyrics [{}]", toggle_key);
+    let block = panel_block(&title, active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -1208,7 +1174,10 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or("");
 
     if lyrics_text.is_empty() {
-        let placeholder = Paragraph::new("Press '5' or Tab to view lyrics for the current track")
+        use crate::keybindings::Action;
+        let lyrics_key = app.keybindings.keys_for_action(Action::ToggleLyrics);
+        let cycle_key = app.keybindings.keys_for_action(Action::CycleForward);
+        let placeholder = Paragraph::new(format!("Press '{}' or {} to view lyrics for the current track", lyrics_key, cycle_key))
             .style(Style::default().fg(c.dim))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });

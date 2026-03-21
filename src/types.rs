@@ -96,7 +96,7 @@ pub enum SortOrder {
     Desc,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Panel {
     Sidebar,
     TrackList,

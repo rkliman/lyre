@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::db::Db;
+use crate::keybindings::{Action, Keybindings};
 use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::types::{
@@ -267,6 +268,7 @@ impl ColorScheme {
 pub struct App {
     pub config: Config,
     pub colors: ColorScheme,
+    pub keybindings: Keybindings,
     pub all_tracks: Vec<Track>,
     pub filtered_tracks: Vec<Track>,
     pub track_context: TrackContext,
@@ -338,10 +340,12 @@ impl App {
 
         let player = Player::new().expect("Failed to initialize audio.");
         let image_picker = crate::art::create_picker();
+        let keybindings = Keybindings::new();
 
         let mut app = Self {
             config,
             colors,
+            keybindings,
             all_tracks,
             filtered_tracks,
             track_context: TrackContext::Library,
@@ -444,7 +448,7 @@ impl App {
     pub fn tick(&mut self) {
         if self.player.is_finished() {
             let _ = self.player.next();
-            self.refresh_album_art(10, 3);
+            self.refresh_album_art();
         }
 
         // Auto-reload lyrics when track changes
@@ -457,71 +461,256 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
-        if self.overlay != Overlay::None {
-            return self.handle_overlay_key(key);
-        }
-        if self.show_help {
-            return self.handle_help_key(key);
-        }
-        if self.search_mode {
-            return self.handle_search_key(key);
-        }
+        let action = self.keybindings.lookup(
+            key,
+            self.active_panel,
+            self.search_mode,
+            self.show_help,
+            self.overlay != Overlay::None,
+        );
 
-        match key {
-            KeyCode::Char('q') | KeyCode::Char('Q') => return true,
-            KeyCode::Char('?') => {
-                self.show_help = true;
-                self.help_scroll = 0;
+        if let Some(action) = action {
+            self.execute_action(action)
+        } else {
+            false
+        }
+    }
+
+    fn execute_action(&mut self, action: Action) -> bool {
+        match action {
+            // Global actions
+            Action::Quit => return true,
+            Action::ToggleHelp => {
+                self.show_help = !self.show_help;
+                if self.show_help {
+                    self.help_scroll = 0;
+                }
             }
-            KeyCode::Tab => self.cycle_panel_forward(),
-            KeyCode::BackTab => self.cycle_panel_backward(),
-            KeyCode::Char('1') => self.active_panel = Panel::Sidebar,
-            KeyCode::Char('2') => self.active_panel = Panel::Queue,
-            KeyCode::Char('3') => self.active_panel = Panel::TrackList,
-            KeyCode::Char('4') | KeyCode::Char('A') => self.toggle_art_window(),
-            KeyCode::Char('5') | KeyCode::Char('L') => self.toggle_lyrics_panel(),
-            KeyCode::Char(' ') => {
+            Action::CycleForward => self.cycle_panel_forward(),
+            Action::CycleBackward => self.cycle_panel_backward(),
+            Action::JumpToSidebar => self.active_panel = Panel::Sidebar,
+            Action::JumpToQueue => self.active_panel = Panel::Queue,
+            Action::JumpToTracks => self.active_panel = Panel::TrackList,
+            Action::ToggleArtWindow => self.toggle_art_window(),
+            Action::ToggleLyrics => self.toggle_lyrics_panel(),
+
+            // Playback
+            Action::PlayPause => {
                 if self.player.state == PlayerState::Stopped {
                     self.play_selected();
                 } else {
                     self.player.toggle_pause();
                 }
             }
-            KeyCode::Char('n') => {
+            Action::Next => {
                 let _ = self.player.next();
-                self.refresh_album_art(10, 3);
+                self.refresh_album_art();
             }
-            KeyCode::Char('p') => {
+            Action::Previous => {
                 let _ = self.player.prev();
-                self.refresh_album_art(10, 3);
+                self.refresh_album_art();
             }
-            KeyCode::Char('s') => self.player.stop(),
-            KeyCode::Char('+') | KeyCode::Char('=') => self.player.volume_up(),
-            KeyCode::Char('-') => self.player.volume_down(),
-            KeyCode::Char('.') => {
+            Action::Stop => self.player.stop(),
+            Action::VolumeUp => self.player.volume_up(),
+            Action::VolumeDown => self.player.volume_down(),
+            Action::SeekForward => {
                 let _ = self.player.seek_forward(std::time::Duration::from_secs(5));
             }
-            KeyCode::Char(',') => {
+            Action::SeekBackward => {
                 let _ = self.player.seek_backward(std::time::Duration::from_secs(5));
             }
-            KeyCode::Char('S') => self.cycle_sort(),
-            KeyCode::Char('R') => self.toggle_sort_order(),
-            KeyCode::Char('/') => self.enter_search(),
-            KeyCode::Char('z') => self.toggle_shuffle(),
-            KeyCode::Char('o') => self.toggle_loop(),
-            // P is global — add selected track to a playlist from any panel
-            KeyCode::Char('P') => self.open_add_to_playlist_overlay(),
-            _ => self.handle_panel_key(key),
+            Action::ToggleShuffle => self.toggle_shuffle(),
+            Action::ToggleLoop => self.toggle_loop(),
+
+            // Navigation
+            Action::MoveUp => self.handle_move(key_to_code(Action::MoveUp)),
+            Action::MoveDown => self.handle_move(key_to_code(Action::MoveDown)),
+            Action::PageUp => self.handle_move(key_to_code(Action::PageUp)),
+            Action::PageDown => self.handle_move(key_to_code(Action::PageDown)),
+            Action::GoToTop => self.handle_move(key_to_code(Action::GoToTop)),
+            Action::GoToBottom => self.handle_move(key_to_code(Action::GoToBottom)),
+            Action::MoveLeft => self.handle_move(key_to_code(Action::MoveLeft)),
+            Action::MoveRight => self.handle_move(key_to_code(Action::MoveRight)),
+            Action::Enter => {
+                match self.active_panel {
+                    Panel::Sidebar => self.active_panel = Panel::TrackList,
+                    Panel::TrackList => self.play_selected(),
+                    Panel::Queue => {
+                        if self.queue_index < self.player.queue.len() {
+                            self.player.queue_index = self.queue_index;
+                            let track = self.player.queue[self.queue_index].clone();
+                            let _ = self.player.play_track(track);
+                            self.refresh_album_art();
+                        }
+                    }
+                    Panel::Lyrics => {}
+                }
+            }
+
+            // Library
+            Action::CycleSort => self.cycle_sort(),
+            Action::ToggleSortOrder => self.toggle_sort_order(),
+            Action::EnterSearch => self.enter_search(),
+
+            // Queue
+            Action::AddToQueue => self.add_selected_to_queue(),
+            Action::AddAllToQueue => self.add_all_to_queue(),
+            Action::RemoveFromQueue => {
+                self.player.remove_from_queue(self.queue_index);
+                if self.queue_index >= self.player.queue.len() && self.queue_index > 0 {
+                    self.queue_index -= 1;
+                }
+            }
+            Action::ClearQueue => {
+                self.player.stop();
+                self.player.clear_queue();
+                self.queue_index = 0;
+                self.album_art = None;
+                self.album_art_image = None;
+                self.album_art_path = None;
+                self.mpris_art_url = None;
+                self.cached_art_window_block = None;
+                self.cached_art_window_protocol = None;
+                self.cached_art_window_dims = (0, 0);
+            }
+
+            // Playlists
+            Action::NewPlaylist => {
+                let item = self.sidebar_items[self.sidebar_index].clone();
+                if matches!(item, SidebarItem::Playlists | SidebarItem::Playlist(_)) {
+                    self.overlay = Overlay::NewPlaylist(String::new());
+                }
+            }
+            Action::AddToPlaylist => self.open_add_to_playlist_overlay(),
+            Action::RemoveFromPlaylist => {
+                if matches!(&self.track_context, TrackContext::Playlist(_)) {
+                    self.playlist_remove_track(self.track_list_index);
+                }
+            }
+            Action::MoveTrackUp => {
+                if matches!(&self.track_context, TrackContext::Playlist(_)) {
+                    self.playlist_move_track_up(self.track_list_index);
+                }
+            }
+            Action::MoveTrackDown => {
+                if matches!(&self.track_context, TrackContext::Playlist(_)) {
+                    self.playlist_move_track_down(self.track_list_index);
+                }
+            }
+
+            // Search
+            Action::SearchExit => {
+                self.search_mode = false;
+                if self.search_query.is_empty() {
+                    self.filtered_tracks = self.all_tracks.clone();
+                    self.apply_sort();
+                }
+            }
+            Action::SearchConfirm => {
+                self.search_mode = false;
+                self.active_panel = Panel::TrackList;
+                self.track_list_index = 0;
+            }
+            Action::SearchBackspace => {
+                self.search_query.pop();
+                self.apply_fuzzy_search();
+            }
+            Action::SearchChar(c) => {
+                self.search_query.push(c);
+                self.apply_fuzzy_search();
+            }
+
+            // Help
+            Action::HelpScroll(delta) => {
+                if delta < 0 {
+                    self.help_scroll = self.help_scroll.saturating_sub(delta.abs() as usize);
+                } else {
+                    self.help_scroll = self.help_scroll.saturating_add(delta as usize);
+                }
+            }
+            Action::HelpClose => {
+                self.show_help = false;
+                self.help_scroll = 0;
+            }
+
+            // Lyrics
+            Action::LyricsReload => self.load_lyrics(),
+
+            // Overlay
+            Action::OverlayConfirm => self.handle_overlay_confirm(),
+            Action::OverlayCancel => {
+                self.overlay = Overlay::None;
+            }
+            Action::OverlayChar(c) => self.handle_overlay_char(c),
+            Action::OverlayBackspace => self.handle_overlay_backspace(),
+            Action::OverlayNavigate(delta) => self.handle_overlay_navigate(delta),
         }
         false
     }
 
-    fn handle_panel_key(&mut self, key: KeyCode) {
+    fn handle_move(&mut self, key: KeyCode) {
         match self.active_panel {
             Panel::Sidebar => self.handle_sidebar_key(key),
             Panel::TrackList => self.handle_tracklist_key(key),
             Panel::Queue => self.handle_queue_key(key),
             Panel::Lyrics => self.handle_lyrics_key(key),
+        }
+    }
+
+    fn handle_overlay_confirm(&mut self) {
+        match &self.overlay.clone() {
+            Overlay::NewPlaylist(name) => {
+                if !name.trim().is_empty() {
+                    self.create_playlist(name.trim());
+                }
+                self.overlay = Overlay::None;
+            }
+            Overlay::AddToPlaylist { track_path, selected } => {
+                if *selected < self.playlists.len() {
+                    self.add_track_to_playlist(*selected, track_path);
+                }
+                self.overlay = Overlay::None;
+            }
+            Overlay::None => {}
+        }
+    }
+
+    fn handle_overlay_char(&mut self, c: char) {
+        match &self.overlay.clone() {
+            Overlay::NewPlaylist(name) => {
+                let mut name = name.clone();
+                name.push(c);
+                self.overlay = Overlay::NewPlaylist(name);
+            }
+            Overlay::AddToPlaylist { .. } => {}
+            Overlay::None => {}
+        }
+    }
+
+    fn handle_overlay_backspace(&mut self) {
+        match &self.overlay.clone() {
+            Overlay::NewPlaylist(name) => {
+                let mut name = name.clone();
+                name.pop();
+                self.overlay = Overlay::NewPlaylist(name);
+            }
+            Overlay::AddToPlaylist { .. } => {}
+            Overlay::None => {}
+        }
+    }
+
+    fn handle_overlay_navigate(&mut self, delta: i32) {
+        match &self.overlay.clone() {
+            Overlay::NewPlaylist(_) => {}
+            Overlay::AddToPlaylist { track_path, selected } => {
+                let mut new_selected = *selected as i32 + delta;
+                new_selected = new_selected.max(0).min(self.playlists.len().saturating_sub(1) as i32);
+                self.overlay = Overlay::AddToPlaylist {
+                    track_path: track_path.clone(),
+                    selected: new_selected as usize,
+                };
+            }
+            Overlay::None => {}
         }
     }
 
@@ -624,7 +813,6 @@ impl App {
     }
 
     fn handle_tracklist_key(&mut self, key: KeyCode) {
-        let in_playlist = matches!(&self.track_context, TrackContext::Playlist(_));
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.track_list_index > 0 {
@@ -648,20 +836,6 @@ impl App {
             }
             KeyCode::End | KeyCode::Char('G') => {
                 self.track_list_index = self.filtered_tracks.len().saturating_sub(1);
-            }
-            KeyCode::Enter => self.play_selected(),
-            KeyCode::Char('a') => self.add_selected_to_queue(),
-            KeyCode::Char('A') => self.add_all_to_queue(),
-            // / activates the search bar from within the track list too
-            KeyCode::Char('/') => self.enter_search(),
-            KeyCode::Char('x') | KeyCode::Delete if in_playlist => {
-                self.playlist_remove_track(self.track_list_index);
-            }
-            KeyCode::Char('K') if in_playlist => {
-                self.playlist_move_track_up(self.track_list_index);
-            }
-            KeyCode::Char('J') if in_playlist => {
-                self.playlist_move_track_down(self.track_list_index);
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 self.active_panel = Panel::Sidebar;
@@ -690,7 +864,7 @@ impl App {
                     self.player.queue_index = self.queue_index;
                     let track = self.player.queue[self.queue_index].clone();
                     let _ = self.player.play_track(track);
-                    self.refresh_album_art(10, 3);
+                    self.refresh_album_art();
                 }
             }
             KeyCode::Delete | KeyCode::Char('x') => {
@@ -748,130 +922,6 @@ impl App {
         }
     }
 
-    fn handle_search_key(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Esc => {
-                self.search_mode = false;
-                // Only wipe the query (and reset to full list) if the bar is empty
-                if self.search_query.is_empty() {
-                    self.filtered_tracks = self.all_tracks.clone();
-                    self.apply_sort();
-                }
-                // If there's a query, keep the filtered results visible but go inactive
-            }
-            KeyCode::Enter => {
-                self.search_mode = false;
-                self.active_panel = Panel::TrackList;
-                self.track_list_index = 0;
-            }
-            KeyCode::Backspace => {
-                self.search_query.pop();
-                self.apply_fuzzy_search();
-            }
-            KeyCode::Char(c) => {
-                self.search_query.push(c);
-                self.apply_fuzzy_search();
-            }
-            _ => {}
-        }
-        false
-    }
-
-    fn handle_help_key(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Esc | KeyCode::Char('?') => {
-                self.show_help = false;
-                self.help_scroll = 0;
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.help_scroll = self.help_scroll.saturating_sub(1);
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.help_scroll = self.help_scroll.saturating_add(1);
-            }
-            KeyCode::PageUp | KeyCode::Char('u') => {
-                self.help_scroll = self.help_scroll.saturating_sub(10);
-            }
-            KeyCode::PageDown | KeyCode::Char('d') => {
-                self.help_scroll = self.help_scroll.saturating_add(10);
-            }
-            KeyCode::Char('g') => {
-                self.help_scroll = 0;
-            }
-            KeyCode::Char('G') => {
-                self.help_scroll = usize::MAX;
-            } // Will be clamped in render
-            _ => {}
-        }
-        false
-    }
-
-    fn handle_overlay_key(&mut self, key: KeyCode) -> bool {
-        match &self.overlay.clone() {
-            Overlay::NewPlaylist(name) => {
-                let mut name = name.clone();
-                match key {
-                    KeyCode::Esc => {
-                        self.overlay = Overlay::None;
-                    }
-                    KeyCode::Enter => {
-                        if !name.trim().is_empty() {
-                            self.create_playlist(name.trim());
-                        }
-                        self.overlay = Overlay::None;
-                    }
-                    KeyCode::Backspace => {
-                        name.pop();
-                        self.overlay = Overlay::NewPlaylist(name);
-                    }
-                    KeyCode::Char(c) => {
-                        name.push(c);
-                        self.overlay = Overlay::NewPlaylist(name);
-                    }
-                    _ => {}
-                }
-            }
-            Overlay::AddToPlaylist {
-                track_path,
-                selected,
-            } => {
-                let track_path = track_path.clone();
-                let mut selected = *selected;
-                match key {
-                    KeyCode::Esc => {
-                        self.overlay = Overlay::None;
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if selected > 0 {
-                            selected -= 1;
-                        }
-                        self.overlay = Overlay::AddToPlaylist {
-                            track_path,
-                            selected,
-                        };
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if selected + 1 < self.playlists.len() {
-                            selected += 1;
-                        }
-                        self.overlay = Overlay::AddToPlaylist {
-                            track_path,
-                            selected,
-                        };
-                    }
-                    KeyCode::Enter => {
-                        if selected < self.playlists.len() {
-                            self.add_track_to_playlist(selected, &track_path.clone());
-                        }
-                        self.overlay = Overlay::None;
-                    }
-                    _ => {}
-                }
-            }
-            Overlay::None => {}
-        }
-        false
-    }
 
     fn on_sidebar_select(&mut self) {
         let item = self.sidebar_items[self.sidebar_index].clone();
@@ -925,7 +975,7 @@ impl App {
     fn load_playlist_tracks(&self, name: &str) -> Vec<Track> {
         let pl = match self.playlists.iter().find(|p| p.name == name) {
             Some(p) => p,
-            None => return Vec::new(),
+            none => return Vec::new(),
         };
         pl.entries
             .iter()
@@ -976,8 +1026,8 @@ impl App {
                         .unwrap_or_else(|| "No lyrics available for this track.".to_string()),
                 )
             }
-            None => {
-                self.lyrics_track_path = None;
+            none => {
+                self.lyrics_track_path = none;
                 Some("No track is currently playing.".to_string())
             }
         };
@@ -1280,7 +1330,7 @@ impl App {
                         .map(|t| t.display_artist())
                         .unwrap_or("")
                 ));
-                self.refresh_album_art(10, 3);
+                self.refresh_album_art();
             }
             Err(e) => self.set_status(format!("Error: {}", e)),
         }
@@ -1392,15 +1442,15 @@ impl App {
         self.wrapped_width = panel_w;
     }
 
-    pub fn refresh_album_art(&mut self, char_w: u16, char_h: u16) {
+    pub fn refresh_album_art(&mut self) {
         let path = match self.player.current_track.as_ref().map(|t| t.path.clone()) {
             Some(p) => p,
-            None => {
-                self.album_art = None;
-                self.album_art_image = None;
-                self.album_art_path = None;
-                self.mpris_art_url = None;
-                self.cached_art_window_block = None;
+            none => {
+                self.album_art = none;
+                self.album_art_image = none;
+                self.album_art_path = none;
+                self.mpris_art_url = none;
+                self.cached_art_window_block = none;
                 self.cached_art_window_dims = (0, 0);
                 return;
             }
@@ -1419,7 +1469,7 @@ impl App {
         if let Some(bytes) = crate::art::extract_cover_bytes(&path) {
             self.album_art_image = crate::art::load_cover_image(&bytes);
             // Small version for player bar
-            self.album_art = crate::art::render_block_art(&bytes, char_w, char_h);
+            self.album_art = crate::art::render_block_art(&bytes, 8, 3);
         } else {
             self.album_art = None;
             self.album_art_image = None;
@@ -1532,4 +1582,20 @@ fn truncate_field(s: &str, max: usize) -> String {
         result.push_str(&" ".repeat(max - w));
     }
     result
+}
+
+/// Helper function to convert an action back to a representative KeyCode
+/// This is used for the panel-specific handlers that still use KeyCode matching
+fn key_to_code(action: Action) -> KeyCode {
+    match action {
+        Action::MoveUp => KeyCode::Up,
+        Action::MoveDown => KeyCode::Down,
+        Action::MoveLeft => KeyCode::Left,
+        Action::MoveRight => KeyCode::Right,
+        Action::PageUp => KeyCode::PageUp,
+        Action::PageDown => KeyCode::PageDown,
+        Action::GoToTop => KeyCode::Home,
+        Action::GoToBottom => KeyCode::End,
+        _ => KeyCode::Null,
+    }
 }

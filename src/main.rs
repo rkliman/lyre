@@ -1,6 +1,7 @@
 mod app;
 mod art;
 mod db;
+mod keybindings;
 mod mpris;
 mod player;
 mod playlist;
