@@ -284,7 +284,7 @@ impl Keybindings {
 fn format_keys(keys: &[KeyCode]) -> String {
     keys.iter()
         .map(|k| match k {
-            Char(' ') => "⎵".into(),
+            Char(' ') => "space".into(),
             Char(c) => c.to_string(),
             Up => "↑".into(), 
             Down => "↓".into(),
