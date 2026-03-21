@@ -93,7 +93,7 @@ impl Keybindings {
             kb!(vec![Char('-')], "Volume up / down", Action::VolumeDown, Global),
             kb!(vec![Char('.')], "Seek forward / backward (5 seconds)", Action::SeekForward, Global),
             kb!(vec![Char(',')], "Seek forward / backward (5 seconds)", Action::SeekBackward, Global),
-            kb!(vec![Char('b')], "Toggle shuffle", Action::ToggleShuffle, Global),
+            kb!(vec![Char('z')], "Toggle shuffle", Action::ToggleShuffle, Global),
             kb!(vec![Char('o')], "Toggle loop (off → all → one)", Action::ToggleLoop, Global),
 
             // Queue
