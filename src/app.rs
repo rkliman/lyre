@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crossterm::event::KeyCode;
-use crossterm::event::KeyModifiers;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use image::DynamicImage;
@@ -463,7 +462,7 @@ impl App {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
+    pub fn handle_key(&mut self, key: KeyCode) -> bool {
         let action = self.keybindings.lookup(
             key,
             self.active_panel,
