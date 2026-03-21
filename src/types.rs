@@ -158,9 +158,9 @@ pub enum Overlay {
     None,
     /// Typing a name for a new playlist.
     NewPlaylist(String),
-    /// Picking a playlist to add the current track to.
+    /// Picking a playlist to add track(s) to.
     AddToPlaylist {
-        track_path: String,
+        track_paths: Vec<String>,
         selected: usize,
     },
 }

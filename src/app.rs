@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use image::DynamicImage;
@@ -673,9 +673,9 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            Overlay::AddToPlaylist { track_path, selected } => {
+            Overlay::AddToPlaylist { track_paths, selected } => {
                 if *selected < self.playlists.len() {
-                    self.add_track_to_playlist(*selected, track_path);
+                    self.add_tracks_to_playlist(*selected, track_paths);
                 }
                 self.overlay = Overlay::None;
             }
@@ -710,11 +710,11 @@ impl App {
     fn handle_overlay_navigate(&mut self, delta: i32) {
         match &self.overlay.clone() {
             Overlay::NewPlaylist(_) => {}
-            Overlay::AddToPlaylist { track_path, selected } => {
+            Overlay::AddToPlaylist { track_paths, selected } => {
                 let mut new_selected = *selected as i32 + delta;
                 new_selected = new_selected.max(0).min(self.playlists.len().saturating_sub(1) as i32);
                 self.overlay = Overlay::AddToPlaylist {
-                    track_path: track_path.clone(),
+                    track_paths: track_paths.clone(),
                     selected: new_selected as usize,
                 };
             }
@@ -1080,9 +1080,28 @@ impl App {
             );
             return;
         }
-        if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
+
+        let track_paths = if self.selected_tracks.is_empty() {
+            // Add single track
+            if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
+                vec![track.path.clone()]
+            } else {
+                return;
+            }
+        } else {
+            // Add multiple selected tracks
+            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+            indices.sort_unstable();
+
+            indices.iter()
+                .filter_map(|&idx| self.filtered_tracks.get(idx))
+                .map(|track| track.path.clone())
+                .collect()
+        };
+
+        if !track_paths.is_empty() {
             self.overlay = Overlay::AddToPlaylist {
-                track_path: track.path.clone(),
+                track_paths,
                 selected: 0,
             };
         }
@@ -1105,21 +1124,30 @@ impl App {
         };
     }
 
-    fn add_track_to_playlist(&mut self, playlist_idx: usize, track_path: &str) {
+    fn add_tracks_to_playlist(&mut self, playlist_idx: usize, track_paths: &[String]) {
         if playlist_idx >= self.playlists.len() {
             return;
         }
         let pl = &mut self.playlists[playlist_idx];
-        pl.add_entry(track_path);
+        for track_path in track_paths {
+            pl.add_entry(track_path);
+        }
         let pl_name = pl.name.clone();
         if let Err(e) = pl.save() {
             self.set_status(format!("Failed to save: {}", e));
             return;
         }
-        self.set_status(format!("Added to {}", pl_name));
+        let count = track_paths.len();
+        if count == 1 {
+            self.set_status(format!("Added to {}", pl_name));
+        } else {
+            self.set_status(format!("Added {} tracks to {}", count, pl_name));
+        }
         if self.track_context == TrackContext::Playlist(pl_name.clone()) {
             self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         }
+        // Clear selection after adding
+        self.clear_selection();
     }
 
     fn playlist_remove_track(&mut self, index: usize) {
@@ -1127,10 +1155,30 @@ impl App {
             TrackContext::Playlist(n) => n.clone(),
             _ => return,
         };
-        if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
-            pl.remove_entry(index);
-            let _ = pl.save();
+
+        if self.selected_tracks.is_empty() {
+            // Remove single track
+            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                pl.remove_entry(index);
+                let _ = pl.save();
+                self.set_status("Removed from playlist".to_string());
+            }
+        } else {
+            // Remove multiple selected tracks (in descending order to avoid index shifting)
+            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+            indices.sort_unstable_by(|a, b| b.cmp(a)); // Descending order
+
+            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                for &idx in &indices {
+                    pl.remove_entry(idx);
+                }
+                let _ = pl.save();
+                let count = indices.len();
+                self.set_status(format!("Removed {} tracks from playlist", count));
+            }
+            self.clear_selection();
         }
+
         self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         if self.track_list_index >= self.filtered_tracks.len() && self.track_list_index > 0 {
             self.track_list_index -= 1;
@@ -1143,13 +1191,38 @@ impl App {
             TrackContext::Playlist(n) => n.clone(),
             _ => return,
         };
-        if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
-            pl.move_entry_up(index);
-            let _ = pl.save();
-        }
-        self.filtered_tracks = self.load_playlist_tracks(&pl_name);
-        if index > 0 {
-            self.track_list_index -= 1;
+
+        if self.selected_tracks.is_empty() {
+            // Move single track up
+            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                pl.move_entry_up(index);
+                let _ = pl.save();
+            }
+            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            if index > 0 {
+                self.track_list_index -= 1;
+            }
+        } else {
+            // Move multiple selected tracks up (process from top to bottom)
+            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+            indices.sort_unstable(); // Ascending order
+
+            let can_move = indices.first().map_or(false, |&first| first > 0);
+            if can_move {
+                if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                    for &idx in &indices {
+                        pl.move_entry_up(idx);
+                    }
+                    let _ = pl.save();
+                }
+                self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+
+                // Update selection indices and current index
+                self.selected_tracks = indices.iter().map(|&i| i - 1).collect();
+                if self.track_list_index > 0 {
+                    self.track_list_index -= 1;
+                }
+            }
         }
         self.invalidate_wrap_cache();
     }
@@ -1159,13 +1232,39 @@ impl App {
             TrackContext::Playlist(n) => n.clone(),
             _ => return,
         };
-        if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
-            pl.move_entry_down(index);
-            let _ = pl.save();
-        }
-        self.filtered_tracks = self.load_playlist_tracks(&pl_name);
-        if index + 1 < self.filtered_tracks.len() {
-            self.track_list_index += 1;
+
+        if self.selected_tracks.is_empty() {
+            // Move single track down
+            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                pl.move_entry_down(index);
+                let _ = pl.save();
+            }
+            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            if index + 1 < self.filtered_tracks.len() {
+                self.track_list_index += 1;
+            }
+        } else {
+            // Move multiple selected tracks down (process from bottom to top)
+            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+            indices.sort_unstable_by(|a, b| b.cmp(a)); // Descending order
+
+            let max_index = self.filtered_tracks.len().saturating_sub(1);
+            let can_move = indices.first().map_or(false, |&last| last < max_index);
+            if can_move {
+                if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                    for &idx in &indices {
+                        pl.move_entry_down(idx);
+                    }
+                    let _ = pl.save();
+                }
+                self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+
+                // Update selection indices and current index
+                self.selected_tracks = indices.iter().map(|&i| i + 1).collect();
+                if self.track_list_index + 1 < self.filtered_tracks.len() {
+                    self.track_list_index += 1;
+                }
+            }
         }
         self.invalidate_wrap_cache();
     }

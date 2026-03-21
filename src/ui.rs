@@ -130,8 +130,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // Overlays render on top of everything
     match &app.overlay {
         Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, app, name),
-        Overlay::AddToPlaylist { selected, .. } => {
-            render_add_to_playlist_overlay(f, area, app, *selected)
+        Overlay::AddToPlaylist { track_paths, selected } => {
+            render_add_to_playlist_overlay(f, area, app, *selected, track_paths.len())
         }
         Overlay::None => {}
     }
@@ -1099,7 +1099,7 @@ fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str)
     );
 }
 
-fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected: usize) {
+fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected: usize, track_count: usize) {
     let c = &app.colors;
     let w = 50u16.min(area.width);
     let h = (app.playlists.len() as u16 + 4).min(area.height);
@@ -1114,9 +1114,15 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
 
     f.render_widget(Clear, popup);
 
+    let title = if track_count == 1 {
+        " Add to Playlist ".to_string()
+    } else {
+        format!(" Add {} tracks to Playlist ", track_count)
+    };
+
     let block = Block::default()
         .title(Span::styled(
-            " Add to Playlist ",
+            title,
             Style::default()
                 .fg(c.highlight)
                 .add_modifier(Modifier::BOLD),

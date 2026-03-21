@@ -171,12 +171,18 @@ impl Keybindings {
             return self.lookup_search(key);
         }
 
+        // Normalize modifiers: for character keys, ignore SHIFT since capital letters include it
+        let normalized_modifiers = match key {
+            KeyCode::Char(_) => modifiers & !KeyModifiers::SHIFT,
+            _ => modifiers,
+        };
+
         // Try panel-specific first (with modifier matching)
         if let Some(action) = self.all.iter()
             .find(|kb| {
                 kb.context == Context::Panel(panel)
                 && kb.keys.contains(&key)
-                && kb.modifiers == modifiers
+                && kb.modifiers == normalized_modifiers
             })
             .map(|kb| kb.action.clone())
         {
@@ -188,7 +194,7 @@ impl Keybindings {
             .find(|kb| {
                 kb.context == Context::Global
                 && kb.keys.contains(&key)
-                && kb.modifiers == modifiers
+                && kb.modifiers == normalized_modifiers
             })
             .map(|kb| kb.action.clone())
     }
