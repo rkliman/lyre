@@ -84,7 +84,8 @@ impl Keybindings {
             kb!(vec![Char('l'), Right], "Switch panels", Action::MoveRight, Global),
 
             // Playback
-            kb!(vec![Enter, Char(' ')], "Play selected / toggle pause", Action::PlayPause, Global),
+            kb!(vec![Enter], "Select / play", Action::Enter, Global),
+            kb!(vec![Char(' ')], "Toggle pause", Action::PlayPause, Global),
             kb!(vec![Char('n')], "Next track in queue", Action::Next, Global),
             kb!(vec![Char('p')], "Previous track in queue", Action::Previous, Global),
             kb!(vec![Char('s')], "Stop", Action::Stop, Global),
