@@ -5,6 +5,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use image::DynamicImage;
 use ratatui_image::picker::Picker;
+use ratatui_image::protocol::StatefulProtocol;
 use serde::Deserialize;
 use shellexpand;
 use std::collections::HashMap;
@@ -25,8 +26,6 @@ struct FilesConfig {
     database_name: String,
     #[serde(default = "default_music_directory")]
     music_directory: String,
-    #[serde(default = "default_temp_cover_path")]
-    temp_cover_path: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -80,9 +79,6 @@ fn default_database_name() -> String {
 fn default_music_directory() -> String {
     "~/Music".to_string()
 }
-fn default_temp_cover_path() -> String {
-    "/tmp/lyre-cover".to_string()
-}
 
 // Default functions for UiColorsConfig
 fn default_foreground() -> String {
@@ -130,7 +126,6 @@ impl Default for FilesConfig {
         Self {
             database_name: default_database_name(),
             music_directory: default_music_directory(),
-            temp_cover_path: default_temp_cover_path(),
         }
     }
 }
@@ -308,6 +303,8 @@ pub struct App {
     // Cached block art for art window (regenerated only when dimensions change)
     pub cached_art_window_block: Option<crate::art::BlockArt>,
     pub cached_art_window_dims: (u16, u16),
+    // Cached protocol for terminal graphics rendering (regenerated only when image/dimensions change)
+    pub cached_art_window_protocol: Option<StatefulProtocol>,
     pub overlay: Overlay,
     pub show_help: bool,
     pub help_scroll: usize,
@@ -375,6 +372,7 @@ impl App {
             image_picker,
             cached_art_window_block: None,
             cached_art_window_dims: (0, 0),
+            cached_art_window_protocol: None,
             overlay: Overlay::None,
             show_help: false,
             help_scroll: 0,
@@ -478,10 +476,10 @@ impl App {
             KeyCode::Tab => self.cycle_panel_forward(),
             KeyCode::BackTab => self.cycle_panel_backward(),
             KeyCode::Char('1') => self.active_panel = Panel::Sidebar,
-            KeyCode::Char('2') => self.active_panel = Panel::TrackList,
-            KeyCode::Char('3') => self.active_panel = Panel::Queue,
-            KeyCode::Char('4') | KeyCode::Char('L') => self.toggle_lyrics_panel(),
-            KeyCode::Char('5') | KeyCode::Char('A') => self.toggle_art_window(),
+            KeyCode::Char('2') => self.active_panel = Panel::Queue,
+            KeyCode::Char('3') => self.active_panel = Panel::TrackList,
+            KeyCode::Char('4') | KeyCode::Char('A') => self.toggle_art_window(),
+            KeyCode::Char('5') | KeyCode::Char('L') => self.toggle_lyrics_panel(),
             KeyCode::Char(' ') => {
                 if self.player.state == PlayerState::Stopped {
                     self.play_selected();
@@ -706,8 +704,12 @@ impl App {
                 self.player.clear_queue();
                 self.queue_index = 0;
                 self.album_art = None;
+                self.album_art_image = None;
                 self.album_art_path = None;
                 self.mpris_art_url = None;
+                self.cached_art_window_block = None;
+                self.cached_art_window_protocol = None;
+                self.cached_art_window_dims = (0, 0);
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 self.active_panel = Panel::TrackList;
@@ -1408,9 +1410,10 @@ impl App {
         }
         self.album_art_path = Some(path.clone());
         self.mpris_art_url = None; // will be lazily re-extracted by main.rs
-        // Clear cached art window block art since track changed
+        // Clear cached art window rendering since track changed
         self.cached_art_window_block = None;
         self.cached_art_window_dims = (0, 0);
+        self.cached_art_window_protocol = None;
 
         // Load album art: both as DynamicImage (for terminal graphics) and BlockArt (fallback)
         if let Some(bytes) = crate::art::extract_cover_bytes(&path) {

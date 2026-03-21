@@ -165,7 +165,7 @@ fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
     let block = Block::default()
         .title(Span::styled(
-            " Album Art [5] ",
+            " Album Art [4] ",
             Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -188,12 +188,20 @@ fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
         if let Some(img) = app.album_art_image.as_ref() {
             // Try to use terminal graphics if available
             if let Some(picker) = app.image_picker.as_ref() {
-                // Clone the picker to get a mutable reference
-                let mut picker_clone = picker.clone();
-                // Create a resizable protocol for rendering with terminal graphics
-                let mut protocol = picker_clone.new_resize_protocol(img.clone());
-                let image_widget = StatefulImage::new(None);
-                f.render_stateful_widget(image_widget, art_rect, &mut protocol);
+                // Use cached protocol if dimensions haven't changed, otherwise regenerate
+                let current_dims = (art_rect.width, art_rect.height);
+                if app.cached_art_window_dims != current_dims || app.cached_art_window_protocol.is_none() {
+                    // Dimensions changed or no cache - regenerate protocol
+                    let mut picker_clone = picker.clone();
+                    app.cached_art_window_protocol = Some(picker_clone.new_resize_protocol(img.clone()));
+                    app.cached_art_window_dims = current_dims;
+                }
+
+                // Render using the cached protocol
+                if let Some(protocol) = app.cached_art_window_protocol.as_mut() {
+                    let image_widget = StatefulImage::new(None);
+                    f.render_stateful_widget(image_widget, art_rect, protocol);
+                }
             } else {
                 // Fall back to block art - use cache if dimensions haven't changed
                 let current_dims = (art_rect.width, art_rect.height);
@@ -226,7 +234,7 @@ fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
             }
         } else {
             // No album art available - show placeholder
-            let placeholder = Paragraph::new("No album art available\n\nPress 5 or A to hide")
+            let placeholder = Paragraph::new("No album art available\n\nPress 4 or A to hide")
                 .style(Style::default().fg(c.dim))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true });
@@ -244,11 +252,11 @@ fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let split = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(50), // art window
                 Constraint::Percentage(50), // library list
+                Constraint::Percentage(50), // art window
             ])
             .split(area);
-        (split[1], Some(split[0]))
+        (split[0], Some(split[1]))
     } else {
         (area, None)
     };
@@ -324,7 +332,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         }
         TrackContext::Library => {
             format!(
-                " Tracks [2] — {} {} ",
+                " Tracks [3] — {} {} ",
                 app.sort_field.label(),
                 if app.sort_order == crate::types::SortOrder::Asc {
                     "↑"
@@ -643,7 +651,7 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     let c = &app.colors;
     let active = app.active_panel == Panel::Queue;
-    let title = format!("Queue [3] ({} tracks)", app.player.queue.len());
+    let title = format!("Queue [2] ({} tracks)", app.player.queue.len());
     let block = panel_block(&title, active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -934,7 +942,9 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
             "Navigation",
             vec![
                 ("Tab / Shift-Tab", "Cycle panels"),
-                ("1 / 2 / 3", "Jump to sidebar / tracks / queue"),
+                ("1 / 2 / 3", "Jump to sidebar / queue / tracks"),
+                ("4  or  A", "Toggle album art window in sidebar"),
+                ("5  or  L", "Toggle lyrics panel"),
                 ("j / k  or  ↑ / ↓", "Move up / down"),
                 ("g / G", "Go to top / bottom"),
                 ("u / d  or  PgUp/PgDn", "Page up / down (all panels)"),
@@ -957,22 +967,6 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) {
                 (". / ,", "Seek forward / backward (5 seconds)"),
                 ("z", "Toggle shuffle"),
                 ("o", "Toggle loop (off → all → one)"),
-            ],
-        ),
-        (
-            "Lyrics",
-            vec![
-                ("4  or  L", "Toggle lyrics panel"),
-                (
-                    "r",
-                    "Reload lyrics for current track (when in lyrics panel)",
-                ),
-            ],
-        ),
-        (
-            "Album Art",
-            vec![
-                ("5  or  A", "Toggle album art window in sidebar"),
             ],
         ),
         (
@@ -1203,7 +1197,7 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
     let c = &app.colors;
     let active = app.active_panel == Panel::Lyrics;
 
-    let block = panel_block("Lyrics [4]", active, app);
+    let block = panel_block("Lyrics [5]", active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -1214,7 +1208,7 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or("");
 
     if lyrics_text.is_empty() {
-        let placeholder = Paragraph::new("Press '4' or Tab to view lyrics for the current track")
+        let placeholder = Paragraph::new("Press '5' or Tab to view lyrics for the current track")
             .style(Style::default().fg(c.dim))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
