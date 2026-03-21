@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
 
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                if app.handle_key(key.code) {
+                if app.handle_key(key) {
                     break;
                 }
             }

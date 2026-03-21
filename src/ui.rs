@@ -554,9 +554,12 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 
         let track = &app.filtered_tracks[i];
         let is_selected = i == app.track_list_index;
+        let is_in_multiselect = app.selected_tracks.contains(&i);
         let is_playing = playing_path.as_deref() == Some(&track.path);
 
         let row_bg = if is_selected {
+            c.selection_bg
+        } else if is_in_multiselect {
             c.selection_bg
         } else {
             c.background
@@ -565,12 +568,14 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
             c.highlight
         } else if is_selected {
             c.accent2
+        } else if is_in_multiselect {
+            c.accent
         } else if is_playing {
             c.playing
         } else {
             c.foreground
         };
-        let bold = is_selected && active;
+        let bold = (is_selected && active) || is_in_multiselect;
 
         let play_icon = if is_playing {
             match app.player.state {
@@ -578,6 +583,8 @@ fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
                 PlayerState::Paused => "⏸",
                 PlayerState::Stopped => " ",
             }
+        } else if is_in_multiselect {
+            "*"
         } else {
             " "
         };

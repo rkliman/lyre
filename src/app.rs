@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use image::DynamicImage;
@@ -7,7 +7,7 @@ use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use serde::Deserialize;
 use shellexpand;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::db::Db;
@@ -286,6 +286,8 @@ pub struct App {
     pub music_dir: String,
     pub track_list_index: usize,
     pub track_list_offset: usize,
+    pub selected_tracks: HashSet<usize>,
+    pub selection_anchor: Option<usize>,
     pub queue_index: usize,
     pub active_panel: Panel,
     pub sort_field: SortField,
@@ -360,6 +362,8 @@ impl App {
             music_dir,
             track_list_index: 0,
             track_list_offset: 0,
+            selected_tracks: HashSet::new(),
+            selection_anchor: None,
             queue_index: 0,
             active_panel: Panel::Sidebar,
             sort_field: SortField::Artist,
@@ -460,9 +464,10 @@ impl App {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyCode) -> bool {
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         let action = self.keybindings.lookup(
-            key,
+            key.code,
+            key.modifiers,
             self.active_panel,
             self.search_mode,
             self.show_help,
@@ -531,6 +536,8 @@ impl App {
             Action::GoToBottom => self.handle_move(key_to_code(Action::GoToBottom)),
             Action::MoveLeft => self.handle_move(key_to_code(Action::MoveLeft)),
             Action::MoveRight => self.handle_move(key_to_code(Action::MoveRight)),
+            Action::ExtendSelectionUp => self.extend_selection_up(),
+            Action::ExtendSelectionDown => self.extend_selection_down(),
             Action::Enter => {
                 match self.active_panel {
                     Panel::Sidebar => self.active_panel = Panel::TrackList,
@@ -816,26 +823,32 @@ impl App {
     fn handle_tracklist_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
+                self.clear_selection();
                 if self.track_list_index > 0 {
                     self.track_list_index -= 1;
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
+                self.clear_selection();
                 if self.track_list_index + 1 < self.filtered_tracks.len() {
                     self.track_list_index += 1;
                 }
             }
             KeyCode::PageUp | KeyCode::Char('u') => {
+                self.clear_selection();
                 self.track_list_index = self.track_list_index.saturating_sub(10);
             }
             KeyCode::PageDown | KeyCode::Char('d') => {
+                self.clear_selection();
                 self.track_list_index =
                     (self.track_list_index + 10).min(self.filtered_tracks.len().saturating_sub(1));
             }
             KeyCode::Home | KeyCode::Char('g') => {
+                self.clear_selection();
                 self.track_list_index = 0;
             }
             KeyCode::End | KeyCode::Char('G') => {
+                self.clear_selection();
                 self.track_list_index = self.filtered_tracks.len().saturating_sub(1);
             }
             KeyCode::Left | KeyCode::Char('h') => {
@@ -924,6 +937,62 @@ impl App {
         }
     }
 
+    fn extend_selection_up(&mut self) {
+        if self.filtered_tracks.is_empty() {
+            return;
+        }
+
+        // Set anchor if this is the first extend operation
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some(self.track_list_index);
+            self.selected_tracks.insert(self.track_list_index);
+        }
+
+        // Move up
+        if self.track_list_index > 0 {
+            self.track_list_index -= 1;
+        }
+
+        // Update selection range
+        self.update_selection_range();
+    }
+
+    fn extend_selection_down(&mut self) {
+        if self.filtered_tracks.is_empty() {
+            return;
+        }
+
+        // Set anchor if this is the first extend operation
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some(self.track_list_index);
+            self.selected_tracks.insert(self.track_list_index);
+        }
+
+        // Move down
+        if self.track_list_index + 1 < self.filtered_tracks.len() {
+            self.track_list_index += 1;
+        }
+
+        // Update selection range
+        self.update_selection_range();
+    }
+
+    fn update_selection_range(&mut self) {
+        if let Some(anchor) = self.selection_anchor {
+            self.selected_tracks.clear();
+            let start = anchor.min(self.track_list_index);
+            let end = anchor.max(self.track_list_index);
+            for i in start..=end {
+                self.selected_tracks.insert(i);
+            }
+        }
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected_tracks.clear();
+        self.selection_anchor = None;
+    }
+
 
     fn on_sidebar_select(&mut self) {
         let item = self.sidebar_items[self.sidebar_index].clone();
@@ -935,6 +1004,7 @@ impl App {
         }
 
         self.search_query.clear();
+        self.clear_selection();
         self.track_context = TrackContext::Library;
 
         self.filtered_tracks = match &item {
@@ -1101,6 +1171,7 @@ impl App {
     }
 
     fn apply_fuzzy_search(&mut self) {
+        self.clear_selection();
         if self.search_query.is_empty() {
             self.filtered_tracks = self.all_tracks.clone();
             return;
@@ -1339,12 +1410,33 @@ impl App {
     }
 
     fn add_selected_to_queue(&mut self) {
-        if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
-            let title = track.display_title().to_string();
-            self.player.add_to_queue(track.clone());
-            // Update UI's queue_index to point to the newly added track
-            self.queue_index = self.player.queue.len().saturating_sub(1);
-            self.set_status(format!("Added to queue: {}", title));
+        if self.selected_tracks.is_empty() {
+            // Add single track
+            if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
+                let title = track.display_title().to_string();
+                self.player.add_to_queue(track.clone());
+                // Update UI's queue_index to point to the newly added track
+                self.queue_index = self.player.queue.len().saturating_sub(1);
+                self.set_status(format!("Added to queue: {}", title));
+            }
+        } else {
+            // Add multiple selected tracks
+            let count = self.selected_tracks.len();
+            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+            indices.sort_unstable();
+
+            for &idx in &indices {
+                if let Some(track) = self.filtered_tracks.get(idx) {
+                    self.player.add_to_queue(track.clone());
+                }
+            }
+
+            // Update UI's queue_index to point to the first newly added track
+            self.queue_index = self.player.queue.len().saturating_sub(count);
+            self.set_status(format!("Added {} tracks to queue", count));
+
+            // Clear selection after adding
+            self.clear_selection();
         }
     }
 

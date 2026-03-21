@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use crate::types::Panel;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,6 +13,7 @@ pub enum Action {
 
     MoveUp, MoveDown, PageUp, PageDown,
     GoToTop, GoToBottom, MoveLeft, MoveRight, Enter,
+    ExtendSelectionUp, ExtendSelectionDown,
 
     CycleSort, ToggleSortOrder, EnterSearch,
 
@@ -33,6 +34,7 @@ pub struct Keybinding {
     pub keys: Vec<KeyCode>,
     pub action: Action,
     pub context: Context,
+    pub modifiers: KeyModifiers,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +56,15 @@ macro_rules! kb {
             keys: $keys,
             action: $action,
             context: $ctx,
+            modifiers: KeyModifiers::NONE,
+        }
+    };
+    ($keys:expr, $action:expr, $ctx:expr, $mods:expr) => {
+        Keybinding {
+            keys: $keys,
+            action: $action,
+            context: $ctx,
+            modifiers: $mods,
         }
     };
 }
@@ -74,6 +85,8 @@ impl Keybindings {
             kb!(vec![Char('L')], Action::ToggleLyrics, Global),
             kb!(vec![Char('j'), Down], Action::MoveDown, Global),
             kb!(vec![Char('k'), Up], Action::MoveUp, Global),
+            kb!(vec![Up], Action::ExtendSelectionUp, Panel(Panel::TrackList), KeyModifiers::SHIFT),
+            kb!(vec![Down], Action::ExtendSelectionDown, Panel(Panel::TrackList), KeyModifiers::SHIFT),
             kb!(vec![Char('g'), Home], Action::GoToTop, Global),
             kb!(vec![Char('G'), End], Action::GoToBottom, Global),
             kb!(vec![Char('u'), PageUp], Action::PageUp, Global),
@@ -143,7 +156,7 @@ impl Keybindings {
     }
 
     /// Look up an action for a given key in a specific context
-    pub fn lookup(&self, key: KeyCode, panel: Panel, in_search: bool, in_help: bool, in_overlay: bool) -> Option<Action> {
+    pub fn lookup(&self, key: KeyCode, modifiers: KeyModifiers, panel: Panel, in_search: bool, in_help: bool, in_overlay: bool) -> Option<Action> {
         // Priority order: overlay > help > search > panel-specific > global
 
         if in_overlay {
@@ -158,17 +171,25 @@ impl Keybindings {
             return self.lookup_search(key);
         }
 
-        // Try panel-specific first
+        // Try panel-specific first (with modifier matching)
         if let Some(action) = self.all.iter()
-            .find(|kb| kb.context == Context::Panel(panel) && kb.keys.contains(&key))
+            .find(|kb| {
+                kb.context == Context::Panel(panel)
+                && kb.keys.contains(&key)
+                && kb.modifiers == modifiers
+            })
             .map(|kb| kb.action.clone())
         {
             return Some(action);
         }
 
-        // Fall back to global
+        // Fall back to global (only if no modifiers or modifiers match)
         self.all.iter()
-            .find(|kb| kb.context == Context::Global && kb.keys.contains(&key))
+            .find(|kb| {
+                kb.context == Context::Global
+                && kb.keys.contains(&key)
+                && kb.modifiers == modifiers
+            })
             .map(|kb| kb.action.clone())
     }
 
@@ -239,10 +260,11 @@ impl Keybindings {
                 (k(ToggleLoop), "Toggle loop (off → all → one)"),
             ]),
             ("Queue", vec![
-                (k(AddToQueue), "Add selected track to queue"),
+                (k(AddToQueue), "Add selected track(s) to queue"),
                 (k(AddAllToQueue), "Add all visible tracks to queue"),
                 (k(RemoveFromQueue), "Remove selected from queue"),
                 (k(ClearQueue), "Clear entire queue"),
+                ("Shift+↑ / Shift+↓".to_string(), "Multi-select tracks (in track list)"),
             ]),
             ("Library", vec![
                 (k(CycleSort), "Cycle sort field (title→artist→album→year→genre→dur)"),
