@@ -24,3 +24,10 @@ walkdir = "2"
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 unicode-width = "0.2"
 rand = "0.8"
+
+[profile.release]
+opt-level = 3       # Optimize for speed
+lto = true          # Enable Link Time Optimization (speed + size)
+codegen-units = 1   # Better optimization (slower compile)
+strip = true        # Strip symbols from binary
+panic = "abort"     # Reduce binary size by removing unwinding
