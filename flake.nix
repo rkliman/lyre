@@ -3,21 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
-
-        # Use the stable Rust toolchain declared in the project
-        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        pkgs = import nixpkgs { inherit system; };
 
         # Native build inputs required by lyre's dependencies:
         #   alsa-lib  — rodio audio backend on Linux
@@ -25,7 +17,6 @@
         #   pkg-config — lets the build scripts find the above
         nativeBuildInputs = with pkgs; [
           pkg-config
-          rustToolchain
         ];
 
         buildInputs = with pkgs; [
@@ -70,6 +61,8 @@
         devShells.default = pkgs.mkShell {
           inherit buildInputs;
           nativeBuildInputs = nativeBuildInputs ++ (with pkgs; [
+            cargo
+            rustc
             rust-analyzer
             clippy
             rustfmt
