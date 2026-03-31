@@ -51,3 +51,64 @@ pub fn truncate_field(s: &str, max: usize) -> String {
     }
     result
 }
+
+/// Split `s` into lines where each line's display width ≤ `max` columns.
+/// Breaks on whitespace where possible; falls back to character-breaking
+/// only when a single word is wider than `max`.
+pub fn wrap_field(s: &str, max: usize) -> Vec<String> {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+    if max == 0 || s.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0;
+
+    for word in s.split_whitespace() {
+        let word_width = word.width();
+
+        // Case 1: Word exceeds max width - must be split by characters
+        if word_width > max {
+            // Flush existing line before handling the giant word
+            if !current_line.is_empty() {
+                lines.push(std::mem::take(&mut current_line));
+                current_width = 0;
+            }
+
+            for ch in word.chars() {
+                let cw = ch.width().unwrap_or(1);
+                if current_width + cw > max && !current_line.is_empty() {
+                    lines.push(std::mem::take(&mut current_line));
+                    current_width = 0;
+                }
+                current_line.push(ch);
+                current_width += cw;
+            }
+            continue;
+        }
+
+        // Case 2: Regular word wrapping
+        let space_needed = if current_line.is_empty() { 0 } else { 1 };
+
+        if current_width + space_needed + word_width <= max {
+            if space_needed == 1 {
+                current_line.push(' ');
+            }
+            current_line.push_str(word);
+            current_width += space_needed + word_width;
+        } else {
+            // Push current line and start a new one with the current word
+            lines.push(std::mem::take(&mut current_line));
+            current_line.push_str(word);
+            current_width = word_width;
+        }
+    }
+
+    if !current_line.is_empty() || lines.is_empty() {
+        lines.push(current_line);
+    }
+
+    lines
+}

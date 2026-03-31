@@ -15,7 +15,7 @@ use crate::types::{
     Lyrics, Overlay, Panel, PlayerState, Result, SidebarItem, SortField, SortOrder, Track,
     TrackContext,
 };
-use crate::util::{expand_tilde, pad_to, truncate_field};
+use crate::util::{expand_tilde, pad_to, truncate_field, wrap_field};
 use crate::colors::ColorScheme;
 use crate::config::load_config;
 
@@ -1583,67 +1583,4 @@ impl App {
             None
         }
     }
-}
-
-/// Split `s` into lines where each line's display width ≤ `max` columns.
-/// Breaks on whitespace where possible; falls back to character-breaking
-/// only when a single word is wider than `max`.
-fn wrap_field(s: &str, max: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthChar;
-    use unicode_width::UnicodeWidthStr;
-    if max == 0 || s.is_empty() {
-        return vec![String::new()];
-    }
-
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut current_w = 0usize;
-
-    for word in s.split_whitespace() {
-        let word_w = word.width();
-
-        // If adding this word (plus a space if current is non-empty) fits, append it
-        let sep_w = if current.is_empty() { 0 } else { 1 };
-        if current_w + sep_w + word_w <= max {
-            if !current.is_empty() {
-                current.push(' ');
-                current_w += 1;
-            }
-            current.push_str(word);
-            current_w += word_w;
-        } else if word_w > max {
-            // Word is wider than the column — flush current line then
-            // character-break the word itself across as many lines as needed
-            if !current.is_empty() {
-                lines.push(current.clone());
-                current.clear();
-            }
-            let mut char_buf = String::new();
-            let mut char_w = 0usize;
-            for ch in word.chars() {
-                let cw = ch.width().unwrap_or(1);
-                if char_w + cw > max {
-                    lines.push(char_buf.clone());
-                    char_buf.clear();
-                    char_w = 0;
-                }
-                char_buf.push(ch);
-                char_w += cw;
-            }
-            // whatever's left becomes the new current line
-            current = char_buf;
-            current_w = char_w;
-        } else {
-            // Word fits on a new line — flush current and start fresh
-            if !current.is_empty() {
-                lines.push(current.clone());
-            }
-            current = word.to_string();
-            current_w = word_w;
-        }
-    }
-    if !current.is_empty() || lines.is_empty() {
-        lines.push(current);
-    }
-    lines
 }
