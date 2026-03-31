@@ -1,4 +1,3 @@
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use crossterm::event::{KeyCode, KeyEvent};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -14,10 +13,38 @@ use crate::keybindings::{Action, Keybindings};
 use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::types::{
-    Lyrics, Overlay, Panel, PlayerState, SidebarItem, SortField, SortOrder, Track, TrackContext,
+    Lyrics, Overlay, Panel, PlayerState, Result, SidebarItem, SortField, SortOrder, Track,
+    TrackContext,
 };
 use ratatui::style::Color;
 use std::fs;
+
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+/// Default database path
+pub const DEFAULT_DATABASE_PATH: &str = "~/.local/share/lyre/music.db";
+
+/// Default music directory
+pub const DEFAULT_MUSIC_DIR: &str = "~/Music";
+
+/// Default color values for UI theme
+pub mod default_colors {
+    pub const FOREGROUND: &str = "#dcd7cd";
+    pub const BACKGROUND: &str = "#12100e";
+    pub const ACCENT: &str = "#d6a362";
+    pub const ACCENT2: &str = "#b27844";
+    pub const DIM: &str = "#645c50";
+    pub const HIGHLIGHT: &str = "#f0c378";
+    pub const PLAYING: &str = "#82c88c";
+    pub const HEADER_BG: &str = "#1e1a16";
+    pub const SELECTION_BG: &str = "#2d261c";
+    pub const OVERLAY_BG: &str = "#16120e";
+    pub const GAUGE_BG: &str = "#28231c";
+    pub const ART_BG: &str = "#12100e";
+    pub const ART_BORDER: &str = "#28231c";
+}
 
 /// Expand tilde (~) to home directory
 pub fn expand_tilde(path: &str) -> String {
@@ -83,51 +110,64 @@ pub struct Config {
 
 // Default functions for FilesConfig
 fn default_database_name() -> String {
-    "~/.local/share/lyre/music.db".to_string()
+    DEFAULT_DATABASE_PATH.to_string()
 }
+
 fn default_music_directory() -> String {
-    "~/Music".to_string()
+    DEFAULT_MUSIC_DIR.to_string()
 }
 
 // Default functions for UiColorsConfig
 fn default_foreground() -> String {
-    "#dcd7cd".to_string()
+    default_colors::FOREGROUND.to_string()
 }
+
 fn default_background() -> String {
-    "#12100e".to_string()
+    default_colors::BACKGROUND.to_string()
 }
+
 fn default_accent() -> String {
-    "#d6a362".to_string()
+    default_colors::ACCENT.to_string()
 }
+
 fn default_accent2() -> String {
-    "#b27844".to_string()
+    default_colors::ACCENT2.to_string()
 }
+
 fn default_dim() -> String {
-    "#645c50".to_string()
+    default_colors::DIM.to_string()
 }
+
 fn default_highlight() -> String {
-    "#f0c378".to_string()
+    default_colors::HIGHLIGHT.to_string()
 }
+
 fn default_playing() -> String {
-    "#82c88c".to_string()
+    default_colors::PLAYING.to_string()
 }
+
 fn default_header_bg() -> String {
-    "#1e1a16".to_string()
+    default_colors::HEADER_BG.to_string()
 }
+
 fn default_selection_bg() -> String {
-    "#2d261c".to_string()
+    default_colors::SELECTION_BG.to_string()
 }
+
 fn default_overlay_bg() -> String {
-    "#16120e".to_string()
+    default_colors::OVERLAY_BG.to_string()
 }
+
 fn default_gauge_bg() -> String {
-    "#28231c".to_string()
+    default_colors::GAUGE_BG.to_string()
 }
+
 fn default_art_bg() -> String {
-    "#12100e".to_string()
+    default_colors::ART_BG.to_string()
 }
+
 fn default_art_border() -> String {
-    "#28231c".to_string()
+    default_colors::ART_BORDER.to_string()
 }
 
 impl Default for FilesConfig {
@@ -270,6 +310,75 @@ impl ColorScheme {
             art_bg: parse_color(&colors.art_bg),
             art_border: parse_color(&colors.art_border),
         }
+    }
+
+    /// Style for normal text
+    pub fn normal_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.foreground)
+    }
+
+    /// Style for dimmed/secondary text
+    pub fn dim_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.dim)
+    }
+
+    /// Style for accent text
+    pub fn accent_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.accent)
+    }
+
+    /// Style for bold accent text (headers, titles)
+    pub fn accent_bold_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default()
+            .fg(self.accent)
+            .add_modifier(ratatui::style::Modifier::BOLD)
+    }
+
+    /// Style for highlighted text
+    pub fn highlight_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.highlight)
+    }
+
+    /// Style for bold highlighted text
+    pub fn highlight_bold_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default()
+            .fg(self.highlight)
+            .add_modifier(ratatui::style::Modifier::BOLD)
+    }
+
+    /// Style for background blocks
+    pub fn block_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().bg(self.background)
+    }
+
+    /// Style for selected items
+    pub fn selected_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default()
+            .fg(self.highlight)
+            .bg(self.selection_bg)
+            .add_modifier(ratatui::style::Modifier::BOLD)
+    }
+
+    /// Style for selected items (with accent2 foreground)
+    pub fn selected_accent2_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default()
+            .fg(self.accent2)
+            .bg(self.selection_bg)
+    }
+
+    /// Style for borders
+    pub fn border_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.accent2)
+    }
+
+    /// Style for active borders
+    pub fn border_active_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.accent)
+    }
+
+    /// Style for inactive borders
+    pub fn border_inactive_style(&self) -> ratatui::style::Style {
+        ratatui::style::Style::default().fg(self.dim)
     }
 }
 
@@ -479,42 +588,16 @@ impl App {
             return;
         }
 
-        let matcher = SkimMatcherV2::default();
         let query = &self.sidebar_search_query;
-
         match section {
             "Artists" => {
-                let mut scored: Vec<(i64, String)> = self
-                    .sidebar_artists
-                    .iter()
-                    .filter_map(|item| {
-                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
-                    })
-                    .collect();
-                scored.sort_by(|a, b| b.0.cmp(&a.0));
-                self.filtered_sidebar_artists = scored.into_iter().map(|(_, item)| item).collect();
+                self.filtered_sidebar_artists = self.fuzzy_match_items(&self.sidebar_artists, query);
             }
             "Albums" => {
-                let mut scored: Vec<(i64, String)> = self
-                    .sidebar_albums
-                    .iter()
-                    .filter_map(|item| {
-                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
-                    })
-                    .collect();
-                scored.sort_by(|a, b| b.0.cmp(&a.0));
-                self.filtered_sidebar_albums = scored.into_iter().map(|(_, item)| item).collect();
+                self.filtered_sidebar_albums = self.fuzzy_match_items(&self.sidebar_albums, query);
             }
             "Genres" => {
-                let mut scored: Vec<(i64, String)> = self
-                    .sidebar_genres
-                    .iter()
-                    .filter_map(|item| {
-                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
-                    })
-                    .collect();
-                scored.sort_by(|a, b| b.0.cmp(&a.0));
-                self.filtered_sidebar_genres = scored.into_iter().map(|(_, item)| item).collect();
+                self.filtered_sidebar_genres = self.fuzzy_match_items(&self.sidebar_genres, query);
             }
             _ => {}
         }
@@ -692,14 +775,7 @@ impl App {
                 self.player.stop();
                 self.player.clear_queue();
                 self.queue_index = 0;
-                self.album_art = None;
-                self.album_art_image = None;
-                self.album_art_path = None;
-                self.album_art_bytes = None;
-                self.mpris_art_url = None;
-                self.cached_art_window_block = None;
-                self.cached_art_window_protocol = None;
-                self.cached_art_window_dims = (0, 0);
+                self.clear_album_art();
             }
 
             // Playlists
@@ -842,37 +918,49 @@ impl App {
         }
     }
 
-    fn handle_sidebar_key(&mut self, key: KeyCode) {
+    /// Handle common navigation keys for lists. Returns true if handled.
+    /// Operates on a mutable index and max length.
+    fn handle_list_navigation(key: KeyCode, index: &mut usize, max_len: usize) -> bool {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.sidebar_index > 0 {
-                    self.sidebar_index -= 1;
-                    self.on_sidebar_select();
+                if *index > 0 {
+                    *index -= 1;
                 }
+                true
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.sidebar_index + 1 < self.sidebar_items.len() {
-                    self.sidebar_index += 1;
-                    self.on_sidebar_select();
+                if *index + 1 < max_len {
+                    *index += 1;
                 }
+                true
             }
             KeyCode::PageUp | KeyCode::Char('u') => {
-                self.sidebar_index = self.sidebar_index.saturating_sub(10);
-                self.on_sidebar_select();
+                *index = index.saturating_sub(10);
+                true
             }
             KeyCode::PageDown | KeyCode::Char('d') => {
-                self.sidebar_index =
-                    (self.sidebar_index + 10).min(self.sidebar_items.len().saturating_sub(1));
-                self.on_sidebar_select();
+                *index = (*index + 10).min(max_len.saturating_sub(1));
+                true
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                self.sidebar_index = 0;
-                self.on_sidebar_select();
+                *index = 0;
+                true
             }
             KeyCode::End | KeyCode::Char('G') => {
-                self.sidebar_index = self.sidebar_items.len().saturating_sub(1);
-                self.on_sidebar_select();
+                *index = max_len.saturating_sub(1);
+                true
             }
+            _ => false,
+        }
+    }
+
+    fn handle_sidebar_key(&mut self, key: KeyCode) {
+        if Self::handle_list_navigation(key, &mut self.sidebar_index, self.sidebar_items.len()) {
+            self.on_sidebar_select();
+            return;
+        }
+
+        match key {
             KeyCode::Enter => {
                 self.active_panel = Panel::TrackList;
             }
@@ -941,36 +1029,12 @@ impl App {
     }
 
     fn handle_tracklist_key(&mut self, key: KeyCode) {
+        if Self::handle_list_navigation(key, &mut self.track_list_index, self.filtered_tracks.len()) {
+            self.clear_selection();
+            return;
+        }
+
         match key {
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.clear_selection();
-                if self.track_list_index > 0 {
-                    self.track_list_index -= 1;
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.clear_selection();
-                if self.track_list_index + 1 < self.filtered_tracks.len() {
-                    self.track_list_index += 1;
-                }
-            }
-            KeyCode::PageUp | KeyCode::Char('u') => {
-                self.clear_selection();
-                self.track_list_index = self.track_list_index.saturating_sub(10);
-            }
-            KeyCode::PageDown | KeyCode::Char('d') => {
-                self.clear_selection();
-                self.track_list_index =
-                    (self.track_list_index + 10).min(self.filtered_tracks.len().saturating_sub(1));
-            }
-            KeyCode::Home | KeyCode::Char('g') => {
-                self.clear_selection();
-                self.track_list_index = 0;
-            }
-            KeyCode::End | KeyCode::Char('G') => {
-                self.clear_selection();
-                self.track_list_index = self.filtered_tracks.len().saturating_sub(1);
-            }
             KeyCode::Left | KeyCode::Char('h') => {
                 self.active_panel = Panel::Sidebar;
             }
@@ -982,17 +1046,11 @@ impl App {
     }
 
     fn handle_queue_key(&mut self, key: KeyCode) {
+        if Self::handle_list_navigation(key, &mut self.queue_index, self.player.queue.len()) {
+            return;
+        }
+
         match key {
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.queue_index > 0 {
-                    self.queue_index -= 1;
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.queue_index + 1 < self.player.queue.len() {
-                    self.queue_index += 1;
-                }
-            }
             KeyCode::Enter => {
                 if self.queue_index < self.player.queue.len() {
                     self.player.queue_index = self.queue_index;
@@ -1017,14 +1075,7 @@ impl App {
                 self.player.stop();
                 self.player.clear_queue();
                 self.queue_index = 0;
-                self.album_art = None;
-                self.album_art_image = None;
-                self.album_art_path = None;
-                self.album_art_bytes = None;
-                self.mpris_art_url = None;
-                self.cached_art_window_block = None;
-                self.cached_art_window_protocol = None;
-                self.cached_art_window_dims = (0, 0);
+                self.clear_album_art();
             }
             KeyCode::Left | KeyCode::Char('h') => {
                 self.active_panel = Panel::TrackList;
@@ -1034,6 +1085,7 @@ impl App {
     }
 
     fn handle_lyrics_key(&mut self, key: KeyCode) {
+        // Lyrics use scroll with no upper bound (clamped in render)
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.lyrics_scroll = self.lyrics_scroll.saturating_sub(1);
@@ -1047,12 +1099,12 @@ impl App {
             KeyCode::PageDown | KeyCode::Char('d') => {
                 self.lyrics_scroll = self.lyrics_scroll.saturating_add(10);
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char('g') | KeyCode::Home => {
                 self.lyrics_scroll = 0;
             }
-            KeyCode::Char('G') => {
-                self.lyrics_scroll = usize::MAX;
-            } // Will be clamped in render
+            KeyCode::Char('G') | KeyCode::End => {
+                self.lyrics_scroll = usize::MAX; // Will be clamped in render
+            }
             KeyCode::Char('r') => {
                 self.load_lyrics();
             } // Reload lyrics
@@ -1251,9 +1303,7 @@ impl App {
             }
         } else {
             // Add multiple selected tracks
-            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-            indices.sort_unstable();
-
+            let indices = self.get_selected_indices_ascending();
             indices.iter()
                 .filter_map(|&idx| self.filtered_tracks.get(idx))
                 .map(|track| track.path.clone())
@@ -1313,35 +1363,28 @@ impl App {
     }
 
     fn playlist_remove_track(&mut self, index: usize) {
-        let pl_name = match &self.track_context {
-            TrackContext::Playlist(n) => n.clone(),
-            _ => return,
-        };
-
         if self.selected_tracks.is_empty() {
             // Remove single track
-            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+            if self.with_current_playlist(|pl| {
                 pl.remove_entry(index);
-                let _ = pl.save();
+            }) {
                 self.set_status("Removed from playlist".to_string());
             }
         } else {
             // Remove multiple selected tracks (in descending order to avoid index shifting)
-            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-            indices.sort_unstable_by(|a, b| b.cmp(a)); // Descending order
+            let indices = self.get_selected_indices_descending();
+            let count = indices.len();
 
-            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+            if self.with_current_playlist(|pl| {
                 for &idx in &indices {
                     pl.remove_entry(idx);
                 }
-                let _ = pl.save();
-                let count = indices.len();
+            }) {
                 self.set_status(format!("Removed {} tracks from playlist", count));
             }
             self.clear_selection();
         }
 
-        self.filtered_tracks = self.load_playlist_tracks(&pl_name);
         if self.track_list_index >= self.filtered_tracks.len() && self.track_list_index > 0 {
             self.track_list_index -= 1;
         }
@@ -1349,35 +1392,25 @@ impl App {
     }
 
     fn playlist_move_track_up(&mut self, index: usize) {
-        let pl_name = match &self.track_context {
-            TrackContext::Playlist(n) => n.clone(),
-            _ => return,
-        };
-
         if self.selected_tracks.is_empty() {
             // Move single track up
-            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+            self.with_current_playlist(|pl| {
                 pl.move_entry_up(index);
-                let _ = pl.save();
-            }
-            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            });
             if index > 0 {
                 self.track_list_index -= 1;
             }
         } else {
             // Move multiple selected tracks up (process from top to bottom)
-            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-            indices.sort_unstable(); // Ascending order
-
+            let indices = self.get_selected_indices_ascending();
             let can_move = indices.first().map_or(false, |&first| first > 0);
+
             if can_move {
-                if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                self.with_current_playlist(|pl| {
                     for &idx in &indices {
                         pl.move_entry_up(idx);
                     }
-                    let _ = pl.save();
-                }
-                self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+                });
 
                 // Update selection indices and current index
                 self.selected_tracks = indices.iter().map(|&i| i - 1).collect();
@@ -1390,36 +1423,27 @@ impl App {
     }
 
     fn playlist_move_track_down(&mut self, index: usize) {
-        let pl_name = match &self.track_context {
-            TrackContext::Playlist(n) => n.clone(),
-            _ => return,
-        };
-
         if self.selected_tracks.is_empty() {
             // Move single track down
-            if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+            let old_len = self.filtered_tracks.len();
+            self.with_current_playlist(|pl| {
                 pl.move_entry_down(index);
-                let _ = pl.save();
-            }
-            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
-            if index + 1 < self.filtered_tracks.len() {
+            });
+            if index + 1 < old_len {
                 self.track_list_index += 1;
             }
         } else {
             // Move multiple selected tracks down (process from bottom to top)
-            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-            indices.sort_unstable_by(|a, b| b.cmp(a)); // Descending order
-
+            let indices = self.get_selected_indices_descending();
             let max_index = self.filtered_tracks.len().saturating_sub(1);
             let can_move = indices.first().map_or(false, |&last| last < max_index);
+
             if can_move {
-                if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+                self.with_current_playlist(|pl| {
                     for &idx in &indices {
                         pl.move_entry_down(idx);
                     }
-                    let _ = pl.save();
-                }
-                self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+                });
 
                 // Update selection indices and current index
                 self.selected_tracks = indices.iter().map(|&i| i + 1).collect();
@@ -1685,8 +1709,7 @@ impl App {
         } else {
             // Add multiple selected tracks
             let count = self.selected_tracks.len();
-            let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-            indices.sort_unstable();
+            let indices = self.get_selected_indices_ascending();
 
             for &idx in &indices {
                 if let Some(track) = self.filtered_tracks.get(idx) {
@@ -1799,17 +1822,79 @@ impl App {
         self.wrapped_width = panel_w;
     }
 
+    /// Clear all album art state and caches
+    fn clear_album_art(&mut self) {
+        self.album_art = None;
+        self.album_art_image = None;
+        self.album_art_path = None;
+        self.album_art_bytes = None;
+        self.mpris_art_url = None;
+        self.cached_art_window_block = None;
+        self.cached_art_window_dims = (0, 0);
+        self.cached_art_window_protocol = None;
+    }
+
+    /// Get selected track indices sorted in ascending order
+    fn get_selected_indices_ascending(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+        indices.sort_unstable();
+        indices
+    }
+
+    /// Get selected track indices sorted in descending order
+    fn get_selected_indices_descending(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+        indices
+    }
+
+    /// Perform fuzzy matching on a list of items and return matches sorted by score
+    fn fuzzy_match_items(&self, items: &[String], query: &str) -> Vec<String> {
+        let matcher = SkimMatcherV2::default();
+        let mut scored: Vec<(i64, String)> = items
+            .iter()
+            .filter_map(|item| {
+                matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.into_iter().map(|(_, item)| item).collect()
+    }
+
+    /// Get the current playlist name if in playlist context, otherwise returns None
+    fn current_playlist_name(&self) -> Option<String> {
+        match &self.track_context {
+            TrackContext::Playlist(name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    /// Execute an operation on the current playlist and sync state
+    /// Returns true if the operation was performed
+    fn with_current_playlist<F>(&mut self, mut operation: F) -> bool
+    where
+        F: FnMut(&mut crate::playlist::Playlist),
+    {
+        let pl_name = match self.current_playlist_name() {
+            Some(name) => name,
+            None => return false,
+        };
+
+        if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
+            operation(pl);
+            let _ = pl.save();
+            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn refresh_album_art(&mut self) {
         let path = match self.player.current_track.as_ref().map(|t| t.path.clone()) {
             Some(p) => p,
             None => {
-                self.album_art = None;
-                self.album_art_image = None;
-                self.album_art_path = None;
-                self.album_art_bytes = None;
-                self.mpris_art_url = None;
-                self.cached_art_window_block = None;
-                self.cached_art_window_dims = (0, 0);
+                self.clear_album_art();
                 return;
             }
         };
@@ -1831,9 +1916,7 @@ impl App {
             // Cache the bytes to avoid re-extraction
             self.album_art_bytes = Some(bytes);
         } else {
-            self.album_art = None;
-            self.album_art_image = None;
-            self.album_art_bytes = None;
+            self.clear_album_art();
         }
     }
 

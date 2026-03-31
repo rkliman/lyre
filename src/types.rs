@@ -222,3 +222,60 @@ pub enum Lyrics {
     /// Lyrics with timestamps (sorted by timestamp)
     Timed(Vec<LyricLine>),
 }
+
+/// Custom error type for Lyre application
+#[derive(Debug)]
+pub enum LyreError {
+    /// Database-related errors
+    Database(String),
+    /// Audio playback errors
+    AudioPlayback(String),
+    /// File I/O errors
+    FileIO(String),
+    /// Configuration errors
+    ConfigError(String),
+    /// Playlist-related errors
+    PlaylistError(String),
+    /// MPRIS/D-Bus errors
+    MPRISError(String),
+    /// Generic error with custom message
+    Other(String),
+}
+
+impl std::fmt::Display for LyreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            LyreError::Database(msg) => write!(f, "Database error: {}", msg),
+            LyreError::AudioPlayback(msg) => write!(f, "Audio playback error: {}", msg),
+            LyreError::FileIO(msg) => write!(f, "File I/O error: {}", msg),
+            LyreError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
+            LyreError::PlaylistError(msg) => write!(f, "Playlist error: {}", msg),
+            LyreError::MPRISError(msg) => write!(f, "MPRIS error: {}", msg),
+            LyreError::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl std::error::Error for LyreError {}
+
+/// Convenience conversions from other error types
+impl From<std::io::Error> for LyreError {
+    fn from(err: std::io::Error) -> Self {
+        LyreError::FileIO(err.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for LyreError {
+    fn from(err: rusqlite::Error) -> Self {
+        LyreError::Database(err.to_string())
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for LyreError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        LyreError::Other(err.to_string())
+    }
+}
+
+/// Type alias for Results using LyreError
+pub type Result<T> = std::result::Result<T, LyreError>;
