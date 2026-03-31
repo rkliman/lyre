@@ -105,7 +105,17 @@ pub fn render_block_art_from_image(img: &DynamicImage, char_w: u16, char_h: u16)
 
 /// Create a Picker for detecting terminal graphics capabilities.
 /// This should be called once at application startup.
+/// Returns None if running in a terminal multiplexer (Zellij, tmux, screen)
+/// since they don't properly forward terminal graphics protocols.
 pub fn create_picker() -> Option<Picker> {
+    // Detect if running in a terminal multiplexer
+    // These don't properly forward terminal graphics escape sequences
+    if std::env::var("ZELLIJ").is_ok()
+        || std::env::var("TMUX").is_ok()
+        || std::env::var("STY").is_ok() {
+        return None; // Force fallback to block art
+    }
+
     Picker::from_query_stdio().ok()
 }
 
