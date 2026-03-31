@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap,
@@ -1317,6 +1317,7 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
 }
 
 fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
+    use crate::types::Lyrics;
     let c = &app.colors;
     let active = app.active_panel == Panel::Lyrics;
 
@@ -1327,45 +1328,82 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let lyrics_text = app
-        .lyrics_content
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("");
+    let lyrics = match &app.lyrics_content {
+        Some(l) => l,
+        None => {
+            use crate::keybindings::Action;
+            let lyrics_key = app.keybindings.keys_for_action(Action::ToggleLyrics);
+            let cycle_key = app.keybindings.keys_for_action(Action::CycleForward);
+            let placeholder = Paragraph::new(format!("Press '{}' or {} to view lyrics for the current track", lyrics_key, cycle_key))
+                .style(Style::default().fg(c.dim))
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true });
+            f.render_widget(placeholder, inner);
+            return;
+        }
+    };
 
-    if lyrics_text.is_empty() {
-        use crate::keybindings::Action;
-        let lyrics_key = app.keybindings.keys_for_action(Action::ToggleLyrics);
-        let cycle_key = app.keybindings.keys_for_action(Action::CycleForward);
-        let placeholder = Paragraph::new(format!("Press '{}' or {} to view lyrics for the current track", lyrics_key, cycle_key))
-            .style(Style::default().fg(c.dim))
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true });
-        f.render_widget(placeholder, inner);
-        return;
+    match lyrics {
+        Lyrics::Plain(text) => {
+            // Plain text lyrics (no timestamps)
+            let lines: Vec<&str> = text.lines().collect();
+            let visible_height = inner.height as usize;
+            let max_scroll = lines.len().saturating_sub(visible_height);
+            let scroll_offset = app.lyrics_scroll.min(max_scroll);
+
+            // Write back clamped value to prevent unbounded scrolling
+            app.lyrics_scroll = scroll_offset;
+
+            let visible_lines: Vec<Line> = lines
+                .iter()
+                .skip(scroll_offset)
+                .take(visible_height)
+                .map(|line| Line::from(Span::styled(*line, Style::default().fg(c.foreground))))
+                .collect();
+
+            let paragraph = Paragraph::new(visible_lines)
+                .wrap(Wrap { trim: false })
+                .style(Style::default().bg(c.background));
+
+            f.render_widget(paragraph, inner);
+        }
+        Lyrics::Timed(lyric_lines) => {
+            // Timestamped lyrics with highlighting
+            let current_index = app.current_lyric_index();
+            let visible_height = inner.height as usize;
+
+            // Auto-scroll to keep current lyric centered
+            if let Some(current) = current_index {
+                let target_scroll = current.saturating_sub(visible_height / 2);
+                let max_scroll = lyric_lines.len().saturating_sub(visible_height);
+                app.lyrics_scroll = target_scroll.min(max_scroll);
+            }
+
+            let scroll_offset = app.lyrics_scroll.min(lyric_lines.len().saturating_sub(visible_height));
+
+            let visible_lines: Vec<Line> = lyric_lines
+                .iter()
+                .enumerate()
+                .skip(scroll_offset)
+                .take(visible_height)
+                .map(|(i, lyric_line)| {
+                    let is_current = current_index == Some(i);
+                    let style = if is_current {
+                        Style::default().fg(c.highlight).bold()
+                    } else {
+                        Style::default().fg(c.dim)
+                    };
+                    Line::from(Span::styled(lyric_line.text.clone(), style))
+                })
+                .collect();
+
+            let paragraph = Paragraph::new(visible_lines)
+                .wrap(Wrap { trim: false })
+                .style(Style::default().bg(c.background));
+
+            f.render_widget(paragraph, inner);
+        }
     }
-
-    // Split lyrics into lines and apply scrolling
-    let lines: Vec<&str> = lyrics_text.lines().collect();
-    let visible_height = inner.height as usize;
-    let max_scroll = lines.len().saturating_sub(visible_height);
-    let scroll_offset = app.lyrics_scroll.min(max_scroll);
-
-    // Write back clamped value to prevent unbounded scrolling
-    app.lyrics_scroll = scroll_offset;
-
-    let visible_lines: Vec<Line> = lines
-        .iter()
-        .skip(scroll_offset)
-        .take(visible_height)
-        .map(|line| Line::from(Span::styled(*line, Style::default().fg(c.foreground))))
-        .collect();
-
-    let paragraph = Paragraph::new(visible_lines)
-        .wrap(Wrap { trim: false })
-        .style(Style::default().bg(c.background));
-
-    f.render_widget(paragraph, inner);
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

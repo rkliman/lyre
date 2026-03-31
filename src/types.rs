@@ -204,3 +204,21 @@ impl LoopMode {
         }
     }
 }
+
+/// A single line of lyrics with optional timestamp.
+#[derive(Debug, Clone)]
+pub struct LyricLine {
+    /// Timestamp in seconds (None for untimed lyrics)
+    pub timestamp: Option<f64>,
+    /// The lyric text
+    pub text: String,
+}
+
+/// Parsed lyrics with timing information.
+#[derive(Debug, Clone)]
+pub enum Lyrics {
+    /// Lyrics without timestamps
+    Plain(String),
+    /// Lyrics with timestamps (sorted by timestamp)
+    Timed(Vec<LyricLine>),
+}

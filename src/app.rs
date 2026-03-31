@@ -14,7 +14,7 @@ use crate::keybindings::{Action, Keybindings};
 use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::types::{
-    Overlay, Panel, PlayerState, SidebarItem, SortField, SortOrder, Track, TrackContext,
+    Lyrics, Overlay, Panel, PlayerState, SidebarItem, SortField, SortOrder, Track, TrackContext,
 };
 use ratatui::style::Color;
 use std::fs;
@@ -328,7 +328,7 @@ pub struct App {
     pub show_help: bool,
     pub help_scroll: usize,
     pub lyrics_visible: bool,
-    pub lyrics_content: Option<String>,
+    pub lyrics_content: Option<Lyrics>,
     pub lyrics_scroll: usize,
     pub lyrics_track_path: Option<String>,
     pub art_window_visible: bool,
@@ -1273,14 +1273,15 @@ impl App {
         self.lyrics_content = match &self.player.current_track {
             Some(track) => {
                 self.lyrics_track_path = Some(track.path.clone());
-                Some(
-                    crate::art::extract_lyrics(&track.path)
-                        .unwrap_or_else(|| "No lyrics available for this track.".to_string()),
-                )
+                if let Some(lyrics_text) = crate::lyrics::extract_lyrics(&track.path) {
+                    Some(crate::lyrics::parse_lyrics(&lyrics_text))
+                } else {
+                    Some(Lyrics::Plain("No lyrics available for this track.".to_string()))
+                }
             }
             None => {
                 self.lyrics_track_path = None;
-                Some("No track is currently playing.".to_string())
+                Some(Lyrics::Plain("No track is currently playing.".to_string()))
             }
         };
     }
@@ -1833,6 +1834,31 @@ impl App {
             self.album_art = None;
             self.album_art_image = None;
             self.album_art_bytes = None;
+        }
+    }
+
+    /// Get the index of the currently active lyric line based on playback position.
+    /// Returns None if lyrics are not timed or no lyrics are loaded.
+    pub fn current_lyric_index(&self) -> Option<usize> {
+        use crate::types::Lyrics;
+
+        if let Some(Lyrics::Timed(lines)) = &self.lyrics_content {
+            let elapsed = self.player.elapsed_secs() as f64;
+
+            // Find the last line whose timestamp has passed
+            let mut current_index = None;
+            for (i, line) in lines.iter().enumerate() {
+                if let Some(timestamp) = line.timestamp {
+                    if timestamp <= elapsed + 0.5 {
+                        current_index = Some(i);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            current_index
+        } else {
+            None
         }
     }
 }
