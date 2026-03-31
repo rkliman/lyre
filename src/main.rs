@@ -8,6 +8,9 @@ mod playlist;
 mod types;
 mod ui;
 mod lyrics;
+mod colors;
+mod config;
+mod util;
 
 use crate::types::PlayerState;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

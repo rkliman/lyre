@@ -2,7 +2,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 use rusqlite::Connection;
 use std::collections::HashSet;
 
-use crate::app::expand_tilde;
+use crate::util::expand_tilde;
 use crate::types::Track;
 
 pub struct Db {

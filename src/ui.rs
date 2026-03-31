@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style, Stylize},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap,
@@ -9,9 +9,9 @@ use ratatui::{
 };
 use ratatui_image::StatefulImage;
 
-use crate::{app::App, types::LoopMode};
-use crate::types::format_duration;
-use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext};
+use crate::app::App;
+use crate::types::{Overlay, Panel, PlayerState, SidebarItem, TrackContext, LoopMode, format_duration};
+use crate::util::truncate_field;
 
 fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
@@ -895,7 +895,7 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
                 "  "
             };
 
-            let title_str = truncate(track.display_title(), w.saturating_sub(2));
+            let title_str = truncate_field(track.display_title(), w.saturating_sub(2));
             let line = format!("{}{}", icon, title_str);
 
             let style = if is_selected && active {
@@ -1008,7 +1008,7 @@ fn render_player(f: &mut Frame, app: &App, area: Rect) {
         let title_line = Line::from(vec![
             Span::styled(format!("{} ", state_icon), Style::default().fg(c.playing)),
             Span::styled(
-                truncate(track.display_title(), cols[1].width as usize - 4),
+                truncate_field(track.display_title(), cols[1].width as usize - 4),
                 Style::default()
                     .fg(c.highlight)
                     .add_modifier(Modifier::BOLD),
@@ -1325,12 +1325,9 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
         .enumerate()
         .map(|(i, pl)| {
             let style = if i == selected {
-                Style::default()
-                    .fg(c.highlight)
-                    .bg(c.selection_bg)
-                    .add_modifier(Modifier::BOLD)
+                app.colors.selected_style()
             } else {
-                Style::default().fg(c.foreground)
+                app.colors.normal_style()
             };
             let icon = if i == selected { "▶ " } else { "  " };
             ListItem::new(Line::from(Span::styled(
@@ -1348,7 +1345,7 @@ fn render_add_to_playlist_overlay(f: &mut Frame, area: Rect, app: &App, selected
     f.render_widget(
         Paragraph::new(Span::styled(
             "Enter to add · Esc to cancel",
-            Style::default().fg(c.dim),
+            app.colors.dim_style(),
         ))
         .alignment(Alignment::Center),
         rows[1],
@@ -1374,7 +1371,7 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
             let lyrics_key = app.keybindings.keys_for_action(Action::ToggleLyrics);
             let cycle_key = app.keybindings.keys_for_action(Action::CycleForward);
             let placeholder = Paragraph::new(format!("Press '{}' or {} to view lyrics for the current track", lyrics_key, cycle_key))
-                .style(Style::default().fg(c.dim))
+                .style(app.colors.dim_style())
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true });
             f.render_widget(placeholder, inner);
@@ -1402,7 +1399,7 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
 
             let paragraph = Paragraph::new(visible_lines)
                 .wrap(Wrap { trim: false })
-                .style(Style::default().bg(c.background));
+                .style(app.colors.block_style());
 
             f.render_widget(paragraph, inner);
         }
@@ -1428,9 +1425,9 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
                 .map(|(i, lyric_line)| {
                     let is_current = current_index == Some(i);
                     let style = if is_current {
-                        Style::default().fg(c.highlight).bold()
+                        app.colors.selected_style()
                     } else {
-                        Style::default().fg(c.dim)
+                        app.colors.dim_style()
                     };
                     Line::from(Span::styled(lyric_line.text.clone(), style))
                 })
@@ -1438,51 +1435,9 @@ fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
 
             let paragraph = Paragraph::new(visible_lines)
                 .wrap(Wrap { trim: false })
-                .style(Style::default().bg(c.background));
+                .style(app.colors.block_style());
 
             f.render_widget(paragraph, inner);
         }
     }
-}
-
-// ── Utility ───────────────────────────────────────────────────────────────────
-
-fn truncate(s: &str, max: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    if max == 0 {
-        return String::new();
-    }
-    let mut result = String::new();
-    let mut w = 0usize;
-    let chars: Vec<char> = s.chars().collect();
-    for (_i, &ch) in chars.iter().enumerate() {
-        let cw = ch.width().unwrap_or(1);
-        if w + cw > max {
-            // Truncate — add ellipsis if there's room
-            if max >= 1 {
-                // Remove last char(s) if needed to fit the ellipsis
-                while w > max - 1 {
-                    if let Some(last) = result.pop() {
-                        w -= last.width().unwrap_or(1);
-                    } else {
-                        break;
-                    }
-                }
-                result.push('…');
-            }
-            // Pad to max display width
-            let current_w: usize = result.chars().map(|c| c.width().unwrap_or(1)).sum();
-            if current_w < max {
-                result.push_str(&" ".repeat(max - current_w));
-            }
-            return result;
-        }
-        result.push(ch);
-        w += cw;
-    }
-    // String fit — pad to max
-    if w < max {
-        result.push_str(&" ".repeat(max - w));
-    }
-    result
 }
