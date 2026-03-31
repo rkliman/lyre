@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::db::Db;
-use crate::keybindings::{Action, Keybindings};
+use crate::keybindings::{Action, Keybindings, key_to_code};
 use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::types::{
@@ -2053,20 +2053,4 @@ fn truncate_field(s: &str, max: usize) -> String {
         result.push_str(&" ".repeat(max - w));
     }
     result
-}
-
-/// Helper function to convert an action back to a representative KeyCode
-/// This is used for the panel-specific handlers that still use KeyCode matching
-fn key_to_code(action: Action) -> KeyCode {
-    match action {
-        Action::MoveUp => KeyCode::Up,
-        Action::MoveDown => KeyCode::Down,
-        Action::MoveLeft => KeyCode::Left,
-        Action::MoveRight => KeyCode::Right,
-        Action::PageUp => KeyCode::PageUp,
-        Action::PageDown => KeyCode::PageDown,
-        Action::GoToTop => KeyCode::Home,
-        Action::GoToBottom => KeyCode::End,
-        _ => KeyCode::Null,
-    }
 }

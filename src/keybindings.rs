@@ -331,3 +331,19 @@ fn format_keys(keys: &[KeyCode]) -> String {
         .collect::<Vec<_>>()
         .join("  or  ")
 }
+
+/// Helper function to convert an action back to a representative KeyCode
+/// This is used for the panel-specific handlers that still use KeyCode matching
+pub fn key_to_code(action: Action) -> KeyCode {
+    match action {
+        Action::MoveUp => KeyCode::Up,
+        Action::MoveDown => KeyCode::Down,
+        Action::MoveLeft => KeyCode::Left,
+        Action::MoveRight => KeyCode::Right,
+        Action::PageUp => KeyCode::PageUp,
+        Action::PageDown => KeyCode::PageDown,
+        Action::GoToTop => KeyCode::Home,
+        Action::GoToBottom => KeyCode::End,
+        _ => KeyCode::Null,
+    }
+}
