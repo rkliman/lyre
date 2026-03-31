@@ -330,29 +330,67 @@ fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         display_items.push((i, Line::from(Span::styled(label, style))));
     }
 
+    // Calculate scroll offset to keep selected item visible
+    // Map original_idx to display_line position
+    let mut selected_display_line = 0usize;
+    let mut current_line = 0usize;
+    for (display_idx, (original_idx, _)) in display_items.iter().enumerate() {
+        // Check if there's a search box before this item
+        if search_boxes.iter().any(|(pos, _, _)| *pos == display_idx) {
+            current_line += 3; // search box takes 3 lines
+        }
+        if *original_idx == app.sidebar_index {
+            selected_display_line = current_line;
+        }
+        current_line += 1;
+    }
+
+    let visible_height = inner.height as usize;
+
+    // Scroll to keep selection visible
+    if selected_display_line < app.sidebar_offset {
+        app.sidebar_offset = selected_display_line;
+    } else if selected_display_line >= app.sidebar_offset + visible_height {
+        app.sidebar_offset = selected_display_line.saturating_sub(visible_height - 1);
+    }
+
     // Render items manually line by line to insert search boxes
     let mut y_offset = 0u16;
+    let mut current_display_line = 0usize;
 
     for (display_idx, (original_idx, line)) in display_items.iter().enumerate() {
-        if y_offset >= inner.height {
-            break;
-        }
-
         // Check if we need to render a search box before this item
         if let Some((_, section, query)) = search_boxes.iter().find(|(pos, _, _)| *pos == display_idx) {
-            // Render search box
-            if y_offset + 3 <= inner.height {
-                let search_area = Rect {
-                    x: inner.x,
-                    y: inner.y + y_offset,
-                    width: inner.width,
-                    height: 3,
-                };
-                render_sidebar_search_box(f, app, search_area, section, query);
-                y_offset += 3;
+            // Skip if before scroll offset
+            if current_display_line + 3 <= app.sidebar_offset {
+                current_display_line += 3;
+                continue;
             }
+
+            // Partially visible or fully visible
+            if current_display_line < app.sidebar_offset + visible_height {
+                let skip_lines = app.sidebar_offset.saturating_sub(current_display_line);
+                if skip_lines < 3 {
+                    let search_area = Rect {
+                        x: inner.x,
+                        y: inner.y + y_offset,
+                        width: inner.width,
+                        height: (3 - skip_lines).min((visible_height - y_offset as usize).min(3)) as u16,
+                    };
+                    render_sidebar_search_box(f, app, search_area, section, query);
+                    y_offset += search_area.height;
+                }
+            }
+            current_display_line += 3;
         }
 
+        // Skip if this line is before the scroll offset
+        if current_display_line < app.sidebar_offset {
+            current_display_line += 1;
+            continue;
+        }
+
+        // Stop if we've filled the visible area
         if y_offset >= inner.height {
             break;
         }
@@ -378,6 +416,7 @@ fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         );
 
         y_offset += 1;
+        current_display_line += 1;
     }
 }
 
