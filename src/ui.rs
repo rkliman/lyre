@@ -281,54 +281,194 @@ fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(sidebar_area);
     f.render_widget(block, sidebar_area);
 
-    let items: Vec<ListItem> = app
-        .sidebar_items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let is_selected = i == app.sidebar_index;
+    // Build items list, inserting search boxes where needed
+    let mut display_items: Vec<(usize, Line)> = Vec::new();  // (original_index, display_line)
+    let mut search_boxes: Vec<(usize, String, String)> = Vec::new();  // (insert_position, section_name, query)
 
-            let style = if item.is_header() {
-                Style::default().fg(c.accent).add_modifier(Modifier::BOLD)
-            } else if is_selected && active {
+    for (i, item) in app.sidebar_items.iter().enumerate() {
+        let is_selected = i == app.sidebar_index;
+
+        let style = if item.is_header() {
+            Style::default().fg(c.accent).add_modifier(Modifier::BOLD)
+        } else if is_selected && active {
+            Style::default()
+                .fg(c.highlight)
+                .bg(c.selection_bg)
+                .add_modifier(Modifier::BOLD)
+        } else if is_selected {
+            Style::default().fg(c.accent2).bg(c.selection_bg)
+        } else {
+            Style::default().fg(c.foreground)
+        };
+
+        // For headers, prepend an expand/collapse chevron
+        let label = if item.is_header() {
+            let section_key = match item {
+                SidebarItem::Artists => "Artists",
+                SidebarItem::Albums => "Albums",
+                SidebarItem::Genres => "Genres",
+                SidebarItem::Playlists => "Playlists",
+                _ => "",
+            };
+            let expanded = *app.sidebar_expanded.get(section_key).unwrap_or(&true);
+            let chevron = if expanded { "▼ " } else { "▶ " };
+
+            // Check if we should show a search box after this header
+            if expanded && !section_key.is_empty() {
+                if let Some(search_section) = &app.sidebar_search_section {
+                    if search_section == section_key && (app.sidebar_search_mode || !app.sidebar_search_query.is_empty()) {
+                        search_boxes.push((display_items.len() + 1, section_key.to_string(), app.sidebar_search_query.clone()));
+                    }
+                }
+            }
+
+            format!("{}{}", chevron, item.label().trim_start())
+        } else {
+            item.label()
+        };
+
+        display_items.push((i, Line::from(Span::styled(label, style))));
+    }
+
+    // Render items manually line by line to insert search boxes
+    let mut y_offset = 0u16;
+
+    for (display_idx, (original_idx, line)) in display_items.iter().enumerate() {
+        if y_offset >= inner.height {
+            break;
+        }
+
+        // Check if we need to render a search box before this item
+        if let Some((_, section, query)) = search_boxes.iter().find(|(pos, _, _)| *pos == display_idx) {
+            // Render search box
+            if y_offset + 3 <= inner.height {
+                let search_area = Rect {
+                    x: inner.x,
+                    y: inner.y + y_offset,
+                    width: inner.width,
+                    height: 3,
+                };
+                render_sidebar_search_box(f, app, search_area, section, query);
+                y_offset += 3;
+            }
+        }
+
+        if y_offset >= inner.height {
+            break;
+        }
+
+        // Render the item
+        let item_area = Rect {
+            x: inner.x,
+            y: inner.y + y_offset,
+            width: inner.width,
+            height: 1,
+        };
+
+        let is_highlighted = *original_idx == app.sidebar_index;
+        let item_style = if is_highlighted {
+            Style::default().bg(c.selection_bg)
+        } else {
+            Style::default().bg(c.background)
+        };
+
+        f.render_widget(
+            Paragraph::new(line.clone()).style(item_style),
+            item_area,
+        );
+
+        y_offset += 1;
+    }
+}
+
+fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str, query: &str) {
+    let c = &app.colors;
+    let search_active = app.sidebar_search_mode && app.sidebar_search_section.as_deref() == Some(section);
+    let has_query = !query.is_empty();
+
+    let box_bg = if search_active {
+        c.overlay_bg
+    } else {
+        c.background
+    };
+    let box_border_color = if search_active {
+        c.accent
+    } else if has_query {
+        c.accent2
+    } else {
+        c.dim
+    };
+
+    let result_count = match section {
+        "Artists" => app.filtered_sidebar_artists.len(),
+        "Albums" => app.filtered_sidebar_albums.len(),
+        "Genres" => app.filtered_sidebar_genres.len(),
+        _ => 0,
+    };
+
+    let result_hint = if has_query {
+        format!(
+            "  {} result{}",
+            result_count,
+            if result_count == 1 { "" } else { "s" }
+        )
+    } else {
+        String::new()
+    };
+
+    let box_title = if search_active {
+        Span::styled(
+            " search ",
+            Style::default()
+                .fg(c.highlight)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if has_query {
+        Span::styled(
+            format!(" search{} ", result_hint),
+            Style::default().fg(c.accent),
+        )
+    } else {
+        Span::styled(" search ", Style::default().fg(c.dim))
+    };
+
+    let search_block = Block::default()
+        .title(box_title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(box_border_color))
+        .style(Style::default().bg(box_bg));
+
+    let search_inner = search_block.inner(area);
+    f.render_widget(search_block, area);
+
+    let content = if search_active {
+        Line::from(vec![
+            Span::styled(
+                query.to_string(),
                 Style::default()
                     .fg(c.highlight)
-                    .bg(c.selection_bg)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_selected {
-                Style::default().fg(c.accent2).bg(c.selection_bg)
-            } else {
-                Style::default().fg(c.foreground)
-            };
+                    .bg(box_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("█", Style::default().fg(c.accent).bg(box_bg)),
+        ])
+    } else if has_query {
+        Line::from(Span::styled(
+            query.to_string(),
+            Style::default().fg(c.accent2).bg(box_bg),
+        ))
+    } else {
+        Line::from(Span::styled(
+            "press / to search…",
+            Style::default().fg(c.dim).bg(box_bg),
+        ))
+    };
 
-            // For headers, prepend an expand/collapse chevron
-            let label = if item.is_header() {
-                let section_key = match item {
-                    SidebarItem::Artists => "Artists",
-                    SidebarItem::Albums => "Albums",
-                    SidebarItem::Genres => "Genres",
-                    SidebarItem::Playlists => "Playlists",
-                    _ => "",
-                };
-                let expanded = *app.sidebar_expanded.get(section_key).unwrap_or(&true);
-                let chevron = if expanded { "▼ " } else { "▶ " };
-                format!("{}{}", chevron, item.label().trim_start())
-            } else {
-                item.label()
-            };
-
-            ListItem::new(Line::from(Span::styled(label, style)))
-        })
-        .collect();
-
-    let mut state = ListState::default();
-    state.select(Some(app.sidebar_index));
-
-    let list = List::new(items)
-        .style(Style::default().bg(c.background))
-        .highlight_style(Style::default().bg(c.selection_bg));
-
-    f.render_stateful_widget(list, inner, &mut state);
+    f.render_widget(
+        Paragraph::new(content).style(Style::default().bg(box_bg)),
+        search_inner,
+    );
 }
 
 fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {

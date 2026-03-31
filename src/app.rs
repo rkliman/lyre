@@ -291,6 +291,12 @@ pub struct App {
     pub sidebar_items: Vec<SidebarItem>,
     pub sidebar_index: usize,
     pub sidebar_expanded: HashMap<String, bool>,
+    pub sidebar_search_mode: bool,
+    pub sidebar_search_query: String,
+    pub sidebar_search_section: Option<String>,
+    pub filtered_sidebar_artists: Vec<String>,
+    pub filtered_sidebar_albums: Vec<String>,
+    pub filtered_sidebar_genres: Vec<String>,
     pub playlists: Vec<Playlist>,
     pub music_dir: String,
     pub track_list_index: usize,
@@ -361,12 +367,18 @@ impl App {
             track_context: TrackContext::Library,
             wrapped_tracks: Vec::new(),
             wrapped_width: 0,
-            sidebar_artists: artists,
-            sidebar_albums: albums,
-            sidebar_genres: genres,
+            sidebar_artists: artists.clone(),
+            sidebar_albums: albums.clone(),
+            sidebar_genres: genres.clone(),
             sidebar_items: Vec::new(),
             sidebar_index: 0,
             sidebar_expanded,
+            sidebar_search_mode: false,
+            sidebar_search_query: String::new(),
+            sidebar_search_section: None,
+            filtered_sidebar_artists: artists,
+            filtered_sidebar_albums: albums,
+            filtered_sidebar_genres: genres,
             playlists,
             music_dir,
             track_list_index: 0,
@@ -410,7 +422,7 @@ impl App {
         let artists_open = *self.sidebar_expanded.get("Artists").unwrap_or(&true);
         items.push(SidebarItem::Artists);
         if artists_open {
-            for a in &self.sidebar_artists {
+            for a in &self.filtered_sidebar_artists {
                 items.push(SidebarItem::Artist(a.clone()));
             }
         }
@@ -418,7 +430,7 @@ impl App {
         let albums_open = *self.sidebar_expanded.get("Albums").unwrap_or(&true);
         items.push(SidebarItem::Albums);
         if albums_open {
-            for a in &self.sidebar_albums {
+            for a in &self.filtered_sidebar_albums {
                 items.push(SidebarItem::Album(a.clone()));
             }
         }
@@ -426,7 +438,7 @@ impl App {
         let genres_open = *self.sidebar_expanded.get("Genres").unwrap_or(&true);
         items.push(SidebarItem::Genres);
         if genres_open {
-            for g in &self.sidebar_genres {
+            for g in &self.filtered_sidebar_genres {
                 items.push(SidebarItem::Genre(g.clone()));
             }
         }
@@ -458,6 +470,56 @@ impl App {
         self.rebuild_sidebar();
     }
 
+    fn filter_sidebar_section(&mut self, section: &str) {
+        if self.sidebar_search_query.is_empty() {
+            // Reset to full lists
+            self.filtered_sidebar_artists = self.sidebar_artists.clone();
+            self.filtered_sidebar_albums = self.sidebar_albums.clone();
+            self.filtered_sidebar_genres = self.sidebar_genres.clone();
+            return;
+        }
+
+        let matcher = SkimMatcherV2::default();
+        let query = &self.sidebar_search_query;
+
+        match section {
+            "Artists" => {
+                let mut scored: Vec<(i64, String)> = self
+                    .sidebar_artists
+                    .iter()
+                    .filter_map(|item| {
+                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
+                    })
+                    .collect();
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                self.filtered_sidebar_artists = scored.into_iter().map(|(_, item)| item).collect();
+            }
+            "Albums" => {
+                let mut scored: Vec<(i64, String)> = self
+                    .sidebar_albums
+                    .iter()
+                    .filter_map(|item| {
+                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
+                    })
+                    .collect();
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                self.filtered_sidebar_albums = scored.into_iter().map(|(_, item)| item).collect();
+            }
+            "Genres" => {
+                let mut scored: Vec<(i64, String)> = self
+                    .sidebar_genres
+                    .iter()
+                    .filter_map(|item| {
+                        matcher.fuzzy_match(item, query).map(|s| (s, item.clone()))
+                    })
+                    .collect();
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                self.filtered_sidebar_genres = scored.into_iter().map(|(_, item)| item).collect();
+            }
+            _ => {}
+        }
+    }
+
     pub fn tick(&mut self) {
         if self.player.is_finished() {
             let _ = self.player.next();
@@ -474,6 +536,26 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        // Handle sidebar search mode before keybindings lookup
+        if self.sidebar_search_mode {
+            return self.handle_sidebar_search_key(key.code);
+        }
+
+        // Handle Escape on sidebar with active filter
+        if key.code == KeyCode::Esc
+            && self.active_panel == Panel::Sidebar
+            && (!self.sidebar_search_query.is_empty() || self.sidebar_search_section.is_some())
+        {
+            self.sidebar_search_mode = false;
+            self.sidebar_search_query.clear();
+            if let Some(section) = &self.sidebar_search_section.clone() {
+                self.filter_sidebar_section(section);
+                self.rebuild_sidebar();
+            }
+            self.sidebar_search_section = None;
+            return false;
+        }
+
         let action = self.keybindings.lookup(
             key.code,
             key.modifiers,
@@ -572,7 +654,30 @@ impl App {
             // Library
             Action::CycleSort => self.cycle_sort(),
             Action::ToggleSortOrder => self.toggle_sort_order(),
-            Action::EnterSearch => self.enter_search(),
+            Action::EnterSearch => {
+                // If on sidebar, activate sidebar search for the current section
+                if self.active_panel == Panel::Sidebar {
+                    if self.sidebar_index < self.sidebar_items.len() {
+                        let item = self.sidebar_items[self.sidebar_index].clone();
+                        let section = match &item {
+                            SidebarItem::Artists => Some("Artists"),
+                            SidebarItem::Albums => Some("Albums"),
+                            SidebarItem::Genres => Some("Genres"),
+                            SidebarItem::Artist(_) => Some("Artists"),
+                            SidebarItem::Album(_) => Some("Albums"),
+                            SidebarItem::Genre(_) => Some("Genres"),
+                            _ => None,
+                        };
+                        if let Some(s) = section {
+                            self.sidebar_search_mode = true;
+                            self.sidebar_search_section = Some(s.to_string());
+                        }
+                    }
+                } else {
+                    // Otherwise, activate global track search
+                    self.enter_search();
+                }
+            }
 
             // Queue
             Action::AddToQueue => self.add_selected_to_queue(),
@@ -956,6 +1061,41 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn handle_sidebar_search_key(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Esc => {
+                // Clear search and hide searchbar
+                self.sidebar_search_mode = false;
+                self.sidebar_search_query.clear();
+                if let Some(section) = &self.sidebar_search_section.clone() {
+                    self.filter_sidebar_section(section);
+                    self.rebuild_sidebar();
+                }
+                self.sidebar_search_section = None;
+            }
+            KeyCode::Enter => {
+                // Keep search active but allow navigation
+                self.sidebar_search_mode = false;
+            }
+            KeyCode::Backspace => {
+                self.sidebar_search_query.pop();
+                if let Some(section) = &self.sidebar_search_section.clone() {
+                    self.filter_sidebar_section(section);
+                    self.rebuild_sidebar();
+                }
+            }
+            KeyCode::Char(c) => {
+                self.sidebar_search_query.push(c);
+                if let Some(section) = &self.sidebar_search_section.clone() {
+                    self.filter_sidebar_section(section);
+                    self.rebuild_sidebar();
+                }
+            }
+            _ => {}
+        }
+        false
     }
 
     fn extend_selection_up(&mut self) {
