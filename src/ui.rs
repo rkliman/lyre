@@ -442,6 +442,7 @@ fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str
         "Artists" => app.filtered_sidebar_artists.len(),
         "Albums" => app.filtered_sidebar_albums.len(),
         "Genres" => app.filtered_sidebar_genres.len(),
+        "Playlists" => app.filtered_sidebar_playlists.len(),
         _ => 0,
     };
 

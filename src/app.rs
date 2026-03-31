@@ -34,6 +34,7 @@ pub struct App {
     pub sidebar_artists: Vec<String>,
     pub sidebar_albums: Vec<String>,
     pub sidebar_genres: Vec<String>,
+    pub sidebar_playlists: Vec<String>,
     pub sidebar_items: Vec<SidebarItem>,
     pub sidebar_index: usize,
     pub sidebar_offset: usize,
@@ -44,6 +45,7 @@ pub struct App {
     pub filtered_sidebar_artists: Vec<String>,
     pub filtered_sidebar_albums: Vec<String>,
     pub filtered_sidebar_genres: Vec<String>,
+    pub filtered_sidebar_playlists: Vec<String>,
     pub playlists: Vec<Playlist>,
     pub music_dir: String,
     pub track_list_index: usize,
@@ -95,6 +97,7 @@ impl App {
         let albums = db.distinct_albums().unwrap_or_default();
         let genres = db.distinct_genres().unwrap_or_default();
         let playlists = scan_playlists(&music_dir);
+        let playlist_names: Vec<String> = playlists.iter().map(|p| p.name.clone()).collect();
 
         let mut sidebar_expanded: HashMap<String, bool> = HashMap::new();
         sidebar_expanded.insert("Artists".to_string(), false);
@@ -117,6 +120,7 @@ impl App {
             sidebar_artists: artists.clone(),
             sidebar_albums: albums.clone(),
             sidebar_genres: genres.clone(),
+            sidebar_playlists: playlist_names.clone(),
             sidebar_items: Vec::new(),
             sidebar_index: 0,
             sidebar_offset: 0,
@@ -127,6 +131,7 @@ impl App {
             filtered_sidebar_artists: artists,
             filtered_sidebar_albums: albums,
             filtered_sidebar_genres: genres,
+            filtered_sidebar_playlists: playlist_names,
             playlists,
             music_dir,
             track_list_index: 0,
@@ -194,8 +199,8 @@ impl App {
         let playlists_open = *self.sidebar_expanded.get("Playlists").unwrap_or(&true);
         items.push(SidebarItem::Playlists);
         if playlists_open {
-            for pl in &self.playlists {
-                items.push(SidebarItem::Playlist(pl.name.clone()));
+            for pl in &self.filtered_sidebar_playlists {
+                items.push(SidebarItem::Playlist(pl.clone()));
             }
         }
 
@@ -224,6 +229,7 @@ impl App {
             self.filtered_sidebar_artists = self.sidebar_artists.clone();
             self.filtered_sidebar_albums = self.sidebar_albums.clone();
             self.filtered_sidebar_genres = self.sidebar_genres.clone();
+            self.filtered_sidebar_playlists = self.sidebar_playlists.clone();
             return;
         }
 
@@ -237,6 +243,9 @@ impl App {
             }
             "Genres" => {
                 self.filtered_sidebar_genres = self.fuzzy_match_items(&self.sidebar_genres, query);
+            }
+            "Playlists" => {
+                self.filtered_sidebar_playlists = self.fuzzy_match_items(&self.sidebar_playlists, query);
             }
             _ => {}
         }
@@ -388,6 +397,7 @@ impl App {
                             SidebarItem::Artist(_) => Some("Artists"),
                             SidebarItem::Album(_) => Some("Albums"),
                             SidebarItem::Genre(_) => Some("Genres"),
+                            SidebarItem::Playlist(_) => Some("Playlists"),
                             _ => None,
                         };
                         if let Some(s) = section {
