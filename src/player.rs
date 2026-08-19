@@ -488,11 +488,13 @@ impl Player {
         self.sink.set_volume(self.volume);
     }
 
-    pub fn elapsed_secs(&self) -> i64 {
-        if self.state == PlayerState::Stopped {
-            return 0;
-        }
+    pub fn set_display_position(&mut self, pos: Duration) {
+        self.seek_offset = pos;
+        self.paused_elapsed = Duration::ZERO;
+        self.playback_start = None;
+    }
 
+    pub fn elapsed_secs(&self) -> i64 {
         let from_playback = self
             .playback_start
             .map(|s| s.elapsed())

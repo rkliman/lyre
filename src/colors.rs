@@ -108,6 +108,10 @@ impl ColorScheme {
             .add_modifier(ratatui::style::Modifier::BOLD)
     }
 
+    pub fn header_style(&self) -> ratatui::style::Style {
+        self.accent_bold_style().bg(self.header_bg)
+    }
+
     /// Style for highlighted text
     pub fn highlight_style(&self) -> ratatui::style::Style {
         ratatui::style::Style::default().fg(self.highlight)

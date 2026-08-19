@@ -1,5 +1,6 @@
 mod app;
 mod art;
+mod navigable_list;
 mod cli;
 mod db;
 mod indexer;

@@ -45,7 +45,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     let has_track = if app.active_panel == Panel::Queue {
         !app.player.queue.is_empty()
     } else {
-        !app.filtered_tracks.is_empty()
+        !app.track_list.is_empty()
     };
     if !has_track {
         let msg = Paragraph::new("No tracks in the current view.\n\nPress 'i' to close this window.")
@@ -67,7 +67,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
         let track = if app.active_panel == Panel::Queue {
             &app.player.queue[app.queue_index.min(app.player.queue.len() - 1)]
         } else {
-            &app.filtered_tracks[app.track_list_index.min(app.filtered_tracks.len() - 1)]
+            &app.track_list.items[app.track_list.index.min(app.track_list.items.len() - 1)]
         };
         track.duration_str()
     };

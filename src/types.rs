@@ -1,5 +1,13 @@
 use std::sync::Arc;
 
+/// An entry in the "Add to playlist" picker. Either the synthetic
+/// "+ New Playlist" row or an existing playlist by its index in `App::playlists`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddToPlaylistItem {
+    NewPlaylist,
+    Existing(usize),
+}
+
 #[derive(Debug, Clone)]
 pub enum GlobalSearchResult {
     Track(Arc<Track>),
@@ -429,11 +437,11 @@ pub enum LyricsFetchStatus {
 pub enum Overlay {
     None,
     /// Typing a name for a new playlist.
-    NewPlaylist(String),
-    /// Picking a playlist to add track(s) to.
+    NewPlaylist { name: String, pending_tracks: Vec<String> },
+    /// Picking a playlist to add track(s) to. Selection lives in
+    /// `App::add_to_playlist` so we can drive it with NavigableList.
     AddToPlaylist {
         track_paths: Vec<String>,
-        selected: usize,
     },
     /// Setup a new database and music directory on first launch.
     SetupDatabase {
@@ -508,16 +516,8 @@ pub enum Lyrics {
 pub enum LyreError {
     /// Database-related errors
     Database(String),
-    /// Audio playback errors
-    AudioPlayback(String),
     /// File I/O errors
     FileIO(String),
-    /// Configuration errors
-    ConfigError(String),
-    /// Playlist-related errors
-    PlaylistError(String),
-    /// MPRIS/D-Bus errors
-    MPRISError(String),
     /// Generic error with custom message
     Other(String),
 }
@@ -526,11 +526,7 @@ impl std::fmt::Display for LyreError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             LyreError::Database(msg) => write!(f, "Database error: {}", msg),
-            LyreError::AudioPlayback(msg) => write!(f, "Audio playback error: {}", msg),
             LyreError::FileIO(msg) => write!(f, "File I/O error: {}", msg),
-            LyreError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
-            LyreError::PlaylistError(msg) => write!(f, "Playlist error: {}", msg),
-            LyreError::MPRISError(msg) => write!(f, "MPRIS error: {}", msg),
             LyreError::Other(msg) => write!(f, "{}", msg),
         }
     }

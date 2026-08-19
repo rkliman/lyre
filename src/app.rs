@@ -1,9 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
+
+use crate::navigable_list::{NavigableList, extend_range_selection};
 
 use crate::db::Db;
 use crate::keybindings::{Action, Keybindings, key_to_code};
@@ -11,10 +13,15 @@ use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::state::StateDb;
 use crate::types::{
-    GlobalSearchResult, LoopMode, LyricsFetchStatus, LyricsState, Overlay, Panel, PlayerState,
-    Result, SetupField, SidebarItem, SidebarSection, SidebarSectionState, SidebarSections,
-    SortField, SortOrder, Track, TrackContext,
+    AddToPlaylistItem, GlobalSearchResult, LoopMode, LyricsFetchStatus, LyricsState, Overlay,
+    Panel, PlayerState, Result, SetupField, SidebarItem, SidebarSection, SidebarSectionState,
+    SidebarSections, SortField, SortOrder, Track, TrackContext,
 };
+
+/// Number of rows moved by a single PageUp / PageDown press.
+/// Matches [`NavigableList::navigate`]'s built-in step so cursor navigation and
+/// selection extension feel identical.
+const PAGE_STEP: usize = 10;
 
 fn default_sidebar_expanded() -> HashMap<String, bool> {
     [
@@ -39,7 +46,7 @@ pub struct App {
     pub colors: ColorScheme,
     pub keybindings: Keybindings,
     pub all_tracks: Vec<Arc<Track>>,
-    pub filtered_tracks: Vec<Arc<Track>>,
+    pub track_list: NavigableList<Arc<Track>>,
     pub search_base_tracks: Vec<Arc<Track>>,
     pub matcher: SkimMatcherV2,
     pub track_context: TrackContext,
@@ -51,9 +58,7 @@ pub struct App {
     pub wrapped_tracks: Vec<(String, Vec<String>)>,
     pub wrapped_width: usize,
     pub sidebar: SidebarSections,
-    pub sidebar_items: Vec<SidebarItem>,
-    pub sidebar_index: usize,
-    pub sidebar_offset: usize,
+    pub sidebar_list: NavigableList<SidebarItem>,
     pub sidebar_expanded: HashMap<String, bool>,
     pub sidebar_search_mode: bool,
     pub sidebar_search_query: String,
@@ -61,11 +66,9 @@ pub struct App {
     pub playlists: Vec<Playlist>,
     pub music_dir: String,
     pub db_path: String,
-    pub track_list_index: usize,
-    pub track_list_offset: usize,
-    pub selected_tracks: HashSet<usize>,
-    pub selection_anchor: Option<usize>,
     pub queue_index: usize,
+    pub queue_selected: std::collections::HashSet<usize>,
+    pub queue_selection_anchor: Option<usize>,
     pub active_panel: Panel,
     pub sort_field: SortField,
     pub sort_order: SortOrder,
@@ -76,8 +79,8 @@ pub struct App {
     pub art: crate::art::AlbumArtState,
     pub overlay: Overlay,
     pub global_search_query: String,
-    pub global_search_selected: usize,
-    pub global_search_results: Vec<GlobalSearchResult>,
+    pub global_search: NavigableList<GlobalSearchResult>,
+    pub add_to_playlist: NavigableList<AddToPlaylistItem>,
     pub show_help: bool,
     pub help_scroll: usize,
     pub show_info: bool,
@@ -107,6 +110,9 @@ pub struct App {
     /// tags on the actively-streamed file corrupts decoding.
     pending_lyrics_writes: HashMap<String, String>,
     state_db: Option<StateDb>,
+    /// Saved playback position (secs) to seek to on first play after restore.
+    restored_position: Option<u64>,
+    last_position_save: std::time::Instant,
 }
 
 impl App {
@@ -160,7 +166,10 @@ impl App {
 
                 let state_db = StateDb::open().ok();
                 let mut restored_queue_index: usize = 0;
+                let mut restored_position: Option<u64> = None;
                 if let Some(ref sdb) = state_db {
+                    restored_position = sdb.load_state("playback_position")
+                        .and_then(|v| v.parse::<u64>().ok());
                     if let Ok(paths) = sdb.load_queue_paths() {
                         let track_map: HashMap<&str, &Arc<Track>> = all_tracks.iter()
                             .map(|t| (t.path.as_str(), t))
@@ -174,7 +183,11 @@ impl App {
                                 .unwrap_or(0)
                                 .min(queue.len() - 1);
                             player.queue_index = restored_queue_index;
+                            player.current_track = Some(queue[restored_queue_index].clone());
                             player.queue = queue;
+                            if let Some(pos) = restored_position {
+                                player.set_display_position(std::time::Duration::from_secs(pos));
+                            }
                         }
                     }
                     if let Some(v) = sdb.load_state("volume").and_then(|s| s.parse::<f32>().ok()) {
@@ -217,7 +230,7 @@ impl App {
                     colors,
                     keybindings,
                     all_tracks,
-                    filtered_tracks,
+                    track_list: NavigableList::new(filtered_tracks),
                     search_base_tracks,
                     matcher: SkimMatcherV2::default(),
                     track_context: TrackContext::Library,
@@ -233,9 +246,7 @@ impl App {
                             filter_indices: None,
                         },
                     },
-                    sidebar_items: Vec::new(),
-                    sidebar_index: 0,
-                    sidebar_offset: 0,
+                    sidebar_list: NavigableList::default(),
                     sidebar_expanded,
                     sidebar_search_mode: false,
                     sidebar_search_query: String::new(),
@@ -243,11 +254,9 @@ impl App {
                     playlists,
                     music_dir,
                     db_path,
-                    track_list_index: 0,
-                    track_list_offset: 0,
-                    selected_tracks: HashSet::new(),
-                    selection_anchor: None,
                     queue_index: restored_queue_index,
+                    queue_selected: std::collections::HashSet::new(),
+                    queue_selection_anchor: None,
                     active_panel: Panel::Sidebar,
                     sort_field: SortField::Artist,
                     sort_order: SortOrder::Asc,
@@ -261,8 +270,8 @@ impl App {
                     },
                     overlay: Overlay::None,
                     global_search_query: String::new(),
-                    global_search_selected: 0,
-                    global_search_results: Vec::new(),
+                    global_search: NavigableList::default(),
+                    add_to_playlist: NavigableList::default(),
                     show_help: false,
                     help_scroll: 0,
                     show_info: false,
@@ -280,9 +289,12 @@ impl App {
                     lyrics_fetch_rx: None,
                     pending_lyrics_writes: HashMap::new(),
                     state_db,
+                    restored_position,
+                    last_position_save: std::time::Instant::now(),
                 };
                 app.rebuild_sidebar();
                 app.apply_sort();
+                app.refresh_album_art();
                 Ok(app)
             }
             Err(err) => Self::new_empty(
@@ -314,7 +326,7 @@ impl App {
             colors,
             keybindings,
             all_tracks: Vec::new(),
-            filtered_tracks: Vec::new(),
+            track_list: NavigableList::default(),
             search_base_tracks: Vec::new(),
             matcher: SkimMatcherV2::default(),
             track_context: TrackContext::Library,
@@ -328,9 +340,7 @@ impl App {
                 },
                 ..Default::default()
             },
-            sidebar_items: Vec::new(),
-            sidebar_index: 0,
-            sidebar_offset: 0,
+            sidebar_list: NavigableList::default(),
             sidebar_expanded,
             sidebar_search_mode: false,
             sidebar_search_query: String::new(),
@@ -338,11 +348,9 @@ impl App {
             playlists,
             music_dir,
             db_path,
-            track_list_index: 0,
-            track_list_offset: 0,
-            selected_tracks: HashSet::new(),
-            selection_anchor: None,
             queue_index: 0,
+            queue_selected: std::collections::HashSet::new(),
+            queue_selection_anchor: None,
             active_panel: Panel::Sidebar,
             sort_field: SortField::Artist,
             sort_order: SortOrder::Asc,
@@ -356,8 +364,8 @@ impl App {
             },
             overlay,
             global_search_query: String::new(),
-            global_search_selected: 0,
-            global_search_results: Vec::new(),
+            global_search: NavigableList::default(),
+            add_to_playlist: NavigableList::default(),
             show_help: false,
             help_scroll: 0,
             show_info: false,
@@ -375,6 +383,8 @@ impl App {
             lyrics_fetch_rx: None,
             pending_lyrics_writes: HashMap::new(),
             state_db: StateDb::open().ok(),
+            restored_position: None,
+            last_position_save: std::time::Instant::now(),
         };
 
         app.rebuild_sidebar();
@@ -421,10 +431,7 @@ impl App {
             }
         }
 
-        if self.sidebar_index >= items.len() {
-            self.sidebar_index = items.len().saturating_sub(1);
-        }
-        self.sidebar_items = items;
+        self.sidebar_list.replace_items(items);
     }
 
     fn toggle_sidebar_section(&mut self, item: &SidebarItem) {
@@ -472,6 +479,14 @@ impl App {
         self.player.maybe_prebuffer_next();
         if self.player.is_finished() {
             self.player.stop();
+        }
+        if self.player.state == crate::types::PlayerState::Playing
+            && self.last_position_save.elapsed() >= std::time::Duration::from_secs(1)
+        {
+            if let Some(ref sdb) = self.state_db {
+                let _ = sdb.save_state("playback_position", &self.player.elapsed_secs().max(0).to_string());
+            }
+            self.last_position_save = std::time::Instant::now();
         }
 
         // Flush any pending lyric tag writes for tracks not currently playing.
@@ -554,7 +569,7 @@ impl App {
                             break;
                         }
                     }
-                    for t in &mut self.filtered_tracks {
+                    for t in &mut self.track_list.items {
                         if t.path == *path {
                             Arc::make_mut(t).duration = *dur;
                             break;
@@ -641,8 +656,8 @@ impl App {
         {
             self.sidebar_search_mode = false;
             self.sidebar_search_query.clear();
-            if let Some(section) = &self.sidebar_search_section.clone() {
-                self.filter_sidebar_section(section);
+            if let Some(section) = self.sidebar_search_section.clone() {
+                self.filter_sidebar_section(&section);
                 self.rebuild_sidebar();
             }
             self.sidebar_search_section = None;
@@ -686,7 +701,18 @@ impl App {
             // Playback
             Action::PlayPause => {
                 if self.player.state == PlayerState::Stopped {
-                    if self.active_panel == Panel::Queue {
+                    if self.player.current_track.is_some() {
+                        // Resume the restored track from the saved position.
+                        let track = self.player.queue[self.player.queue_index].clone();
+                        match self.player.play_track(track) {
+                            Ok(_) => {
+                                self.apply_restored_position();
+                                self.refresh_album_art();
+                                self.persist_queue();
+                            }
+                            Err(e) => self.set_status(format!("Error: {}", e)),
+                        }
+                    } else if self.active_panel == Panel::Queue {
                         self.play_queue_selected();
                     } else {
                         self.play_selected();
@@ -737,8 +763,34 @@ impl App {
             Action::GoToBottom => self.handle_move(key_to_code(Action::GoToBottom)),
             Action::MoveLeft => self.handle_move(key_to_code(Action::MoveLeft)),
             Action::MoveRight => self.handle_move(key_to_code(Action::MoveRight)),
-            Action::ExtendSelectionUp => self.extend_selection_up(),
-            Action::ExtendSelectionDown => self.extend_selection_down(),
+            Action::ExtendSelectionUp => {
+                if self.active_panel == Panel::Queue {
+                    self.extend_queue_selection_up(1);
+                } else {
+                    self.extend_selection_up(1);
+                }
+            }
+            Action::ExtendSelectionDown => {
+                if self.active_panel == Panel::Queue {
+                    self.extend_queue_selection_down(1);
+                } else {
+                    self.extend_selection_down(1);
+                }
+            }
+            Action::ExtendSelectionPageUp => {
+                if self.active_panel == Panel::Queue {
+                    self.extend_queue_selection_up(PAGE_STEP);
+                } else {
+                    self.extend_selection_up(PAGE_STEP);
+                }
+            }
+            Action::ExtendSelectionPageDown => {
+                if self.active_panel == Panel::Queue {
+                    self.extend_queue_selection_down(PAGE_STEP);
+                } else {
+                    self.extend_selection_down(PAGE_STEP);
+                }
+            }
             Action::Enter => {
                 match self.active_panel {
                     Panel::Sidebar => self.active_panel = Panel::TrackList,
@@ -761,8 +813,7 @@ impl App {
             Action::EnterSearch => {
                 // If on sidebar, activate sidebar search for the current section
                 if self.active_panel == Panel::Sidebar {
-                    if self.sidebar_index < self.sidebar_items.len() {
-                        let item = self.sidebar_items[self.sidebar_index].clone();
+                    if let Some(item) = self.sidebar_list.current().cloned() {
                         let section = match &item {
                             SidebarItem::Artists => Some("Artists"),
                             SidebarItem::Albums => Some("Albums"),
@@ -796,31 +847,38 @@ impl App {
                 self.player.stop();
                 self.player.clear_queue();
                 self.queue_index = 0;
+                self.queue_selected.clear();
+                self.queue_selection_anchor = None;
                 self.clear_album_art();
                 self.persist_queue();
             }
 
             // Playlists
             Action::NewPlaylist => {
-                let item = self.sidebar_items[self.sidebar_index].clone();
-                if matches!(item, SidebarItem::Playlists | SidebarItem::Playlist(_)) {
-                    self.overlay = Overlay::NewPlaylist(String::new());
+                if let Some(item) = self.sidebar_list.current() {
+                    if matches!(item, SidebarItem::Playlists | SidebarItem::Playlist(_)) {
+                        self.overlay = Overlay::NewPlaylist { name: String::new(), pending_tracks: vec![] };
+                    }
                 }
             }
             Action::AddToPlaylist => self.open_add_to_playlist_overlay(),
             Action::RemoveFromPlaylist => {
                 if matches!(&self.track_context, TrackContext::Playlist(_)) {
-                    self.playlist_remove_track(self.track_list_index);
+                    self.playlist_remove_track(self.track_list.index);
                 }
             }
             Action::MoveTrackUp => {
-                if matches!(&self.track_context, TrackContext::Playlist(_)) {
-                    self.playlist_move_track_up(self.track_list_index);
+                if self.active_panel == Panel::Queue {
+                    self.queue_move_track_up(self.queue_index);
+                } else if matches!(&self.track_context, TrackContext::Playlist(_)) {
+                    self.playlist_move_track_up(self.track_list.index);
                 }
             }
             Action::MoveTrackDown => {
-                if matches!(&self.track_context, TrackContext::Playlist(_)) {
-                    self.playlist_move_track_down(self.track_list_index);
+                if self.active_panel == Panel::Queue {
+                    self.queue_move_track_down(self.queue_index);
+                } else if matches!(&self.track_context, TrackContext::Playlist(_)) {
+                    self.playlist_move_track_down(self.track_list.index);
                 }
             }
 
@@ -828,7 +886,7 @@ impl App {
             Action::SearchExit => {
                 self.search_mode = false;
                 if self.search_query.is_empty() {
-                    self.filtered_tracks = self.search_base_tracks.clone();
+                    self.track_list.items = self.search_base_tracks.clone();
                     if !matches!(self.track_context, TrackContext::Playlist(_)) {
                         self.apply_sort();
                     }
@@ -837,7 +895,7 @@ impl App {
             Action::SearchConfirm => {
                 self.search_mode = false;
                 self.active_panel = Panel::TrackList;
-                self.track_list_index = 0;
+                self.track_list.index = 0;
             }
             Action::SearchBackspace => {
                 self.search_query.pop();
@@ -882,8 +940,8 @@ impl App {
             Action::GlobalSearch => {
                 self.overlay = Overlay::GlobalSearch;
                 self.global_search_query.clear();
-                self.global_search_selected = 0;
-                self.global_search_results.clear();
+                self.global_search.index = 0;
+                self.global_search.items.clear();
             }
 
             Action::InfoClose => {
@@ -919,17 +977,36 @@ impl App {
 
     fn handle_overlay_confirm(&mut self) {
         match &self.overlay.clone() {
-            Overlay::NewPlaylist(name) => {
-                if !name.trim().is_empty() {
-                    self.create_playlist(name.trim());
+            Overlay::NewPlaylist { name, pending_tracks } => {
+                let name = name.trim().to_string();
+                let pending_tracks = pending_tracks.clone();
+                if !name.is_empty() {
+                    self.create_playlist(&name);
+                    if !pending_tracks.is_empty() {
+                        if let Some(idx) = self.playlists.iter().position(|p| p.name == name) {
+                            self.add_tracks_to_playlist(idx, &pending_tracks);
+                        }
+                    }
                 }
                 self.overlay = Overlay::None;
             }
-            Overlay::AddToPlaylist { track_paths, selected } => {
-                if *selected < self.playlists.len() {
-                    self.add_tracks_to_playlist(*selected, track_paths);
+            Overlay::AddToPlaylist { track_paths } => {
+                match self.add_to_playlist.current().cloned() {
+                    Some(AddToPlaylistItem::NewPlaylist) => {
+                        let track_paths = track_paths.clone();
+                        self.overlay = Overlay::NewPlaylist {
+                            name: String::new(),
+                            pending_tracks: track_paths,
+                        };
+                    }
+                    Some(AddToPlaylistItem::Existing(playlist_idx)) => {
+                        self.add_tracks_to_playlist(playlist_idx, track_paths);
+                        self.overlay = Overlay::None;
+                    }
+                    None => {
+                        self.overlay = Overlay::None;
+                    }
                 }
-                self.overlay = Overlay::None;
             }
             Overlay::SetupDatabase {
                 database_name,
@@ -956,7 +1033,7 @@ impl App {
                             .into_iter()
                             .map(Arc::new)
                             .collect();
-                        self.filtered_tracks = self.all_tracks.clone();
+                        self.track_list.items = self.all_tracks.clone();
                         let artists = db.distinct_artists().unwrap_or_default();
                         let albums = db.distinct_albums().unwrap_or_default();
                         let genres = db.distinct_genres().unwrap_or_default();
@@ -990,10 +1067,10 @@ impl App {
 
     fn handle_overlay_char(&mut self, c: char) {
         match &self.overlay.clone() {
-            Overlay::NewPlaylist(name) => {
+            Overlay::NewPlaylist { name, pending_tracks } => {
                 let mut name = name.clone();
                 name.push(c);
-                self.overlay = Overlay::NewPlaylist(name);
+                self.overlay = Overlay::NewPlaylist { name, pending_tracks: pending_tracks.clone() };
             }
             Overlay::SetupDatabase {
                 database_name,
@@ -1019,10 +1096,10 @@ impl App {
 
     fn handle_overlay_backspace(&mut self) {
         match &self.overlay.clone() {
-            Overlay::NewPlaylist(name) => {
+            Overlay::NewPlaylist { name, pending_tracks } => {
                 let mut name = name.clone();
                 name.pop();
-                self.overlay = Overlay::NewPlaylist(name);
+                self.overlay = Overlay::NewPlaylist { name, pending_tracks: pending_tracks.clone() };
             }
             Overlay::SetupDatabase {
                 database_name,
@@ -1052,7 +1129,7 @@ impl App {
 
     fn handle_overlay_navigate(&mut self, delta: i32) {
         match &self.overlay.clone() {
-            Overlay::NewPlaylist(_) => {}
+            Overlay::NewPlaylist { .. } => {}
             Overlay::SetupDatabase {
                 database_name,
                 music_directory,
@@ -1068,56 +1145,16 @@ impl App {
                     active_field: next_field,
                 };
             }
-            Overlay::AddToPlaylist { track_paths, selected } => {
-                let mut new_selected = *selected as i32 + delta;
-                new_selected = new_selected.max(0).min(self.playlists.len().saturating_sub(1) as i32);
-                self.overlay = Overlay::AddToPlaylist {
-                    track_paths: track_paths.clone(),
-                    selected: new_selected as usize,
-                };
+            Overlay::AddToPlaylist { .. } => {
+                let key = if delta < 0 { KeyCode::Up } else { KeyCode::Down };
+                self.add_to_playlist.navigate(key);
             }
             Overlay::GlobalSearch | Overlay::None => {}
         }
     }
 
-    /// Handle common navigation keys for lists. Returns true if handled.
-    /// Operates on a mutable index and max length.
-    fn handle_list_navigation(key: KeyCode, index: &mut usize, max_len: usize) -> bool {
-        match key {
-            KeyCode::Up | KeyCode::Char('k') => {
-                if max_len > 0 {
-                    *index = if *index == 0 { max_len - 1 } else { *index - 1 };
-                }
-                true
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if max_len > 0 {
-                    *index = if *index + 1 >= max_len { 0 } else { *index + 1 };
-                }
-                true
-            }
-            KeyCode::PageUp | KeyCode::Char('u') => {
-                *index = index.saturating_sub(10);
-                true
-            }
-            KeyCode::PageDown | KeyCode::Char('d') => {
-                *index = (*index + 10).min(max_len.saturating_sub(1));
-                true
-            }
-            KeyCode::Home | KeyCode::Char('g') => {
-                *index = 0;
-                true
-            }
-            KeyCode::End | KeyCode::Char('G') => {
-                *index = max_len.saturating_sub(1);
-                true
-            }
-            _ => false,
-        }
-    }
-
     fn handle_sidebar_key(&mut self, key: KeyCode) {
-        if Self::handle_list_navigation(key, &mut self.sidebar_index, self.sidebar_items.len()) {
+        if self.sidebar_list.navigate(key) {
             self.on_sidebar_select();
             return;
         }
@@ -1127,63 +1164,66 @@ impl App {
                 self.active_panel = Panel::TrackList;
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                let item = self.sidebar_items[self.sidebar_index].clone();
-                if item.is_header() {
-                    let k = match &item {
-                        SidebarItem::Artists => "Artists",
-                        SidebarItem::Albums => "Albums",
-                        SidebarItem::Genres => "Genres",
-                        SidebarItem::Playlists => "Playlists",
-                        _ => "",
-                    };
-                    if !k.is_empty() {
-                        let open = *self.sidebar_expanded.get(k).unwrap_or(&true);
-                        if !open {
-                            self.sidebar_expanded.insert(k.to_string(), true);
-                            self.rebuild_sidebar();
-                        } else {
-                            self.active_panel = Panel::TrackList;
+                if let Some(item) = self.sidebar_list.current().cloned() {
+                    if item.is_header() {
+                        let k = match &item {
+                            SidebarItem::Artists => "Artists",
+                            SidebarItem::Albums => "Albums",
+                            SidebarItem::Genres => "Genres",
+                            SidebarItem::Playlists => "Playlists",
+                            _ => "",
+                        };
+                        if !k.is_empty() {
+                            let open = *self.sidebar_expanded.get(k).unwrap_or(&true);
+                            if !open {
+                                self.sidebar_expanded.insert(k.to_string(), true);
+                                self.rebuild_sidebar();
+                            } else {
+                                self.active_panel = Panel::TrackList;
+                            }
                         }
+                    } else {
+                        self.active_panel = Panel::TrackList;
                     }
-                } else {
-                    self.active_panel = Panel::TrackList;
                 }
             }
             KeyCode::Left | KeyCode::Char('h') => {
-                let item = self.sidebar_items[self.sidebar_index].clone();
-                if item.is_header() {
-                    self.toggle_sidebar_section(&item);
-                } else {
-                    // If on a child item, move cursor to the header of its section
-                    let header_index = match &item {
-                        SidebarItem::Artist(_) => self
-                            .sidebar_items
-                            .iter()
-                            .position(|i| matches!(i, SidebarItem::Artists)),
-                        SidebarItem::Album(_) => self
-                            .sidebar_items
-                            .iter()
-                            .position(|i| matches!(i, SidebarItem::Albums)),
-                        SidebarItem::Genre(_) => self
-                            .sidebar_items
-                            .iter()
-                            .position(|i| matches!(i, SidebarItem::Genres)),
-                        SidebarItem::Playlist(_) => self
-                            .sidebar_items
-                            .iter()
-                            .position(|i| matches!(i, SidebarItem::Playlists)),
-                        _ => None,
-                    };
-                    if let Some(idx) = header_index {
-                        self.sidebar_index = idx;
-                        self.on_sidebar_select();
+                if let Some(item) = self.sidebar_list.current().cloned() {
+                    if item.is_header() {
+                        self.toggle_sidebar_section(&item);
+                    } else {
+                        // If on a child item, move cursor to the header of its section
+                        let header_index = match &item {
+                            SidebarItem::Artist(_) => self
+                                .sidebar_list.items
+                                .iter()
+                                .position(|i| matches!(i, SidebarItem::Artists)),
+                            SidebarItem::Album(_) => self
+                                .sidebar_list.items
+                                .iter()
+                                .position(|i| matches!(i, SidebarItem::Albums)),
+                            SidebarItem::Genre(_) => self
+                                .sidebar_list.items
+                                .iter()
+                                .position(|i| matches!(i, SidebarItem::Genres)),
+                            SidebarItem::Playlist(_) => self
+                                .sidebar_list.items
+                                .iter()
+                                .position(|i| matches!(i, SidebarItem::Playlists)),
+                            _ => None,
+                        };
+                        if let Some(idx) = header_index {
+                            self.sidebar_list.index = idx;
+                            self.on_sidebar_select();
+                        }
                     }
                 }
             }
             KeyCode::Char('N') => {
-                let item = self.sidebar_items[self.sidebar_index].clone();
-                if matches!(item, SidebarItem::Playlists | SidebarItem::Playlist(_)) {
-                    self.overlay = Overlay::NewPlaylist(String::new());
+                if let Some(item) = self.sidebar_list.current() {
+                    if matches!(item, SidebarItem::Playlists | SidebarItem::Playlist(_)) {
+                        self.overlay = Overlay::NewPlaylist { name: String::new(), pending_tracks: vec![] };
+                    }
                 }
             }
             _ => {}
@@ -1191,8 +1231,8 @@ impl App {
     }
 
     fn handle_tracklist_key(&mut self, key: KeyCode) {
-        if Self::handle_list_navigation(key, &mut self.track_list_index, self.filtered_tracks.len()) {
-            self.clear_selection();
+        if self.track_list.navigate(key) {
+            self.track_list.clear_selection();
             return;
         }
 
@@ -1208,7 +1248,9 @@ impl App {
     }
 
     fn handle_queue_key(&mut self, key: KeyCode) {
-        if Self::handle_list_navigation(key, &mut self.queue_index, self.player.queue.len()) {
+        let queue_len = self.player.queue.len();
+        if crate::navigable_list::navigate_index(key, &mut self.queue_index, queue_len) {
+            self.clear_queue_selection();
             return;
         }
 
@@ -1282,10 +1324,10 @@ impl App {
             } else {
                 Some(&*self.player.queue[self.queue_index.min(self.player.queue.len() - 1)])
             }
-        } else if self.filtered_tracks.is_empty() {
+        } else if self.track_list.is_empty() {
             None
         } else {
-            Some(&*self.filtered_tracks[self.track_list_index.min(self.filtered_tracks.len() - 1)])
+            Some(&*self.track_list.items[self.track_list.index.min(self.track_list.items.len() - 1)])
         }
     }
 
@@ -1447,7 +1489,7 @@ impl App {
         for t in self.all_tracks.iter_mut().filter(|t| t.path == path) {
             apply(Arc::make_mut(t));
         }
-        for t in self.filtered_tracks.iter_mut().filter(|t| t.path == path) {
+        for t in self.track_list.items.iter_mut().filter(|t| t.path == path) {
             apply(Arc::make_mut(t));
         }
         for t in self.player.queue.iter_mut().filter(|t| t.path == path) {
@@ -1531,65 +1573,47 @@ impl App {
         false
     }
 
-    fn extend_selection_up(&mut self) {
-        if self.filtered_tracks.is_empty() {
-            return;
-        }
-
-        // Set anchor if this is the first extend operation
-        if self.selection_anchor.is_none() {
-            self.selection_anchor = Some(self.track_list_index);
-            self.selected_tracks.insert(self.track_list_index);
-        }
-
-        // Move up
-        if self.track_list_index > 0 {
-            self.track_list_index -= 1;
-        }
-
-        // Update selection range
-        self.update_selection_range();
+    fn extend_selection_up(&mut self, step: usize) {
+        self.track_list.extend_up_by(step);
     }
 
-    fn extend_selection_down(&mut self) {
-        if self.filtered_tracks.is_empty() {
-            return;
-        }
-
-        // Set anchor if this is the first extend operation
-        if self.selection_anchor.is_none() {
-            self.selection_anchor = Some(self.track_list_index);
-            self.selected_tracks.insert(self.track_list_index);
-        }
-
-        // Move down
-        if self.track_list_index + 1 < self.filtered_tracks.len() {
-            self.track_list_index += 1;
-        }
-
-        // Update selection range
-        self.update_selection_range();
+    fn extend_selection_down(&mut self, step: usize) {
+        self.track_list.extend_down_by(step);
     }
 
-    fn update_selection_range(&mut self) {
-        if let Some(anchor) = self.selection_anchor {
-            self.selected_tracks.clear();
-            let start = anchor.min(self.track_list_index);
-            let end = anchor.max(self.track_list_index);
-            for i in start..=end {
-                self.selected_tracks.insert(i);
-            }
-        }
+    fn clear_queue_selection(&mut self) {
+        self.queue_selected.clear();
+        self.queue_selection_anchor = None;
     }
 
-    fn clear_selection(&mut self) {
-        self.selected_tracks.clear();
-        self.selection_anchor = None;
+    fn extend_queue_selection_up(&mut self, step: usize) {
+        extend_range_selection(
+            &mut self.queue_index,
+            self.player.queue.len(),
+            true,
+            step,
+            &mut self.queue_selected,
+            &mut self.queue_selection_anchor,
+        );
+    }
+
+    fn extend_queue_selection_down(&mut self, step: usize) {
+        extend_range_selection(
+            &mut self.queue_index,
+            self.player.queue.len(),
+            false,
+            step,
+            &mut self.queue_selected,
+            &mut self.queue_selection_anchor,
+        );
     }
 
 
     fn on_sidebar_select(&mut self) {
-        let item = self.sidebar_items[self.sidebar_index].clone();
+        let item = match self.sidebar_list.current().cloned() {
+            Some(i) => i,
+            None => return,
+        };
 
         // Skip expensive operations when navigating to header items
         // Headers don't have associated tracks to display
@@ -1600,10 +1624,9 @@ impl App {
         self.track_heading = item.title();
 
         self.search_query.clear();
-        self.clear_selection();
         self.track_context = TrackContext::Library;
 
-        self.filtered_tracks = match &item {
+        let new_tracks = match &item {
             SidebarItem::AllTracks => self.all_tracks.clone(),
             SidebarItem::Favorites => self
                 .all_tracks
@@ -1644,6 +1667,9 @@ impl App {
             _ => self.all_tracks.clone(),
         };
 
+        // set_items resets index/offset to 0 and clears selection
+        self.track_list.set_items(new_tracks);
+
         match item {
             SidebarItem::RecentlyAdded => {
                 self.sort_field = SortField::DateAdded;
@@ -1655,8 +1681,6 @@ impl App {
             }
         }
 
-        self.track_list_index = 0;
-        self.track_list_offset = 0;
         if self.track_context == TrackContext::Library && !matches!(item, SidebarItem::RecentlyAdded) {
             self.apply_sort();
         }
@@ -1704,34 +1728,40 @@ impl App {
     }
 
     fn open_add_to_playlist_overlay(&mut self) {
-        if self.playlists.is_empty() {
-            self.set_status(
-                "No playlists — press N on the Playlists header to create one".to_string(),
-            );
-            return;
-        }
-
-        let track_paths = if self.selected_tracks.is_empty() {
-            // Add single track
-            if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
+        let track_paths = if self.active_panel == Panel::Queue {
+            if self.queue_selected.is_empty() {
+                if let Some(track) = self.player.queue.get(self.queue_index) {
+                    vec![track.path.clone()]
+                } else {
+                    return;
+                }
+            } else {
+                let mut indices: Vec<usize> = self.queue_selected.iter().copied().collect();
+                indices.sort_unstable();
+                indices.iter()
+                    .filter_map(|&idx| self.player.queue.get(idx))
+                    .map(|track| track.path.clone())
+                    .collect()
+            }
+        } else if self.track_list.selected.is_empty() {
+            if let Some(track) = self.track_list.items.get(self.track_list.index) {
                 vec![track.path.clone()]
             } else {
                 return;
             }
         } else {
-            // Add multiple selected tracks
-            let indices = self.get_selected_indices_ascending();
+            let indices = self.track_list.selected_ascending();
             indices.iter()
-                .filter_map(|&idx| self.filtered_tracks.get(idx))
+                .filter_map(|&idx| self.track_list.items.get(idx))
                 .map(|track| track.path.clone())
                 .collect()
         };
 
         if !track_paths.is_empty() {
-            self.overlay = Overlay::AddToPlaylist {
-                track_paths,
-                selected: 0,
-            };
+            let mut items = vec![AddToPlaylistItem::NewPlaylist];
+            items.extend((0..self.playlists.len()).map(AddToPlaylistItem::Existing));
+            self.add_to_playlist.set_items(items);
+            self.overlay = Overlay::AddToPlaylist { track_paths };
         }
     }
 
@@ -1853,14 +1883,14 @@ impl App {
             self.set_status(format!("Added {} tracks to {}", count, pl_name));
         }
         if self.track_context == TrackContext::Playlist(pl_name.clone()) {
-            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            self.track_list.items = self.load_playlist_tracks(&pl_name);
         }
         // Clear selection after adding
-        self.clear_selection();
+        self.track_list.clear_selection();
     }
 
     fn playlist_remove_track(&mut self, index: usize) {
-        if self.selected_tracks.is_empty() {
+        if self.track_list.selected.is_empty() {
             // Remove single track
             if self.with_current_playlist(|pl| {
                 pl.remove_entry(index);
@@ -1869,7 +1899,7 @@ impl App {
             }
         } else {
             // Remove multiple selected tracks (in descending order to avoid index shifting)
-            let indices = self.get_selected_indices_descending();
+            let indices = self.track_list.selected_descending();
             let count = indices.len();
 
             if self.with_current_playlist(|pl| {
@@ -1879,27 +1909,27 @@ impl App {
             }) {
                 self.set_status(format!("Removed {} tracks from playlist", count));
             }
-            self.clear_selection();
+            self.track_list.clear_selection();
         }
 
-        if self.track_list_index >= self.filtered_tracks.len() && self.track_list_index > 0 {
-            self.track_list_index -= 1;
+        if self.track_list.index >= self.track_list.items.len() && self.track_list.index > 0 {
+            self.track_list.index -= 1;
         }
         self.invalidate_wrap_cache();
     }
 
     fn playlist_move_track_up(&mut self, index: usize) {
-        if self.selected_tracks.is_empty() {
+        if self.track_list.selected.is_empty() {
             // Move single track up
             self.with_current_playlist(|pl| {
                 pl.move_entry_up(index);
             });
             if index > 0 {
-                self.track_list_index -= 1;
+                self.track_list.index -= 1;
             }
         } else {
             // Move multiple selected tracks up (process from top to bottom)
-            let indices = self.get_selected_indices_ascending();
+            let indices = self.track_list.selected_ascending();
             let can_move = indices.first().map_or(false, |&first| first > 0);
 
             if can_move {
@@ -1910,9 +1940,9 @@ impl App {
                 });
 
                 // Update selection indices and current index
-                self.selected_tracks = indices.iter().map(|&i| i - 1).collect();
-                if self.track_list_index > 0 {
-                    self.track_list_index -= 1;
+                self.track_list.selected = indices.iter().map(|&i| i - 1).collect();
+                if self.track_list.index > 0 {
+                    self.track_list.index -= 1;
                 }
             }
         }
@@ -1920,19 +1950,19 @@ impl App {
     }
 
     fn playlist_move_track_down(&mut self, index: usize) {
-        if self.selected_tracks.is_empty() {
+        if self.track_list.selected.is_empty() {
             // Move single track down
-            let old_len = self.filtered_tracks.len();
+            let old_len = self.track_list.items.len();
             self.with_current_playlist(|pl| {
                 pl.move_entry_down(index);
             });
             if index + 1 < old_len {
-                self.track_list_index += 1;
+                self.track_list.index += 1;
             }
         } else {
             // Move multiple selected tracks down (process from bottom to top)
-            let indices = self.get_selected_indices_descending();
-            let max_index = self.filtered_tracks.len().saturating_sub(1);
+            let indices = self.track_list.selected_descending();
+            let max_index = self.track_list.items.len().saturating_sub(1);
             let can_move = indices.first().map_or(false, |&last| last < max_index);
 
             if can_move {
@@ -1943,9 +1973,9 @@ impl App {
                 });
 
                 // Update selection indices and current index
-                self.selected_tracks = indices.iter().map(|&i| i + 1).collect();
-                if self.track_list_index + 1 < self.filtered_tracks.len() {
-                    self.track_list_index += 1;
+                self.track_list.selected = indices.iter().map(|&i| i + 1).collect();
+                if self.track_list.index + 1 < self.track_list.items.len() {
+                    self.track_list.index += 1;
                 }
             }
         }
@@ -1953,9 +1983,9 @@ impl App {
     }
 
     fn apply_fuzzy_search(&mut self) {
-        self.clear_selection();
+        self.track_list.clear_selection();
         if self.search_query.is_empty() {
-            self.filtered_tracks = self.search_base_tracks.clone();
+            self.track_list.items = self.search_base_tracks.clone();
             return;
         }
         let q = self.search_query.clone();
@@ -1969,8 +1999,8 @@ impl App {
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0));
-        self.filtered_tracks = scored.into_iter().map(|(_, t)| t).collect();
-        self.track_list_index = 0;
+        self.track_list.items = scored.into_iter().map(|(_, t)| t).collect();
+        self.track_list.index = 0;
         self.invalidate_wrap_cache();
     }
 
@@ -1980,64 +2010,33 @@ impl App {
         }
         let asc = self.sort_order == SortOrder::Asc;
         match self.sort_field {
-            SortField::Title => self.filtered_tracks.sort_by(|a, b| {
+            SortField::Title => self.track_list.items.sort_by(|a, b| {
                 let c = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
-            SortField::Artist => self.filtered_tracks.sort_by(|a, b| {
-                let c = a
-                    .display_artist()
-                    .to_lowercase()
-                    .cmp(&b.display_artist().to_lowercase());
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+            SortField::Artist => self.track_list.items.sort_by(|a, b| {
+                let c = a.display_artist().to_lowercase().cmp(&b.display_artist().to_lowercase());
+                if asc { c } else { c.reverse() }
             }),
-            SortField::Album => self.filtered_tracks.sort_by(|a, b| {
+            SortField::Album => self.track_list.items.sort_by(|a, b| {
                 let c = a.album.to_lowercase().cmp(&b.album.to_lowercase());
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
-            SortField::Year => self.filtered_tracks.sort_by(|a, b| {
+            SortField::Year => self.track_list.items.sort_by(|a, b| {
                 let c = a.year.cmp(&b.year);
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
-            SortField::Genre => self.filtered_tracks.sort_by(|a, b| {
+            SortField::Genre => self.track_list.items.sort_by(|a, b| {
                 let c = a.genre.to_lowercase().cmp(&b.genre.to_lowercase());
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
-            SortField::Duration => self.filtered_tracks.sort_by(|a, b| {
+            SortField::Duration => self.track_list.items.sort_by(|a, b| {
                 let c = a.duration.cmp(&b.duration);
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
-            SortField::DateAdded => self.filtered_tracks.sort_by(|a, b| {
+            SortField::DateAdded => self.track_list.items.sort_by(|a, b| {
                 let c = a.added_at.cmp(&b.added_at);
-                if asc {
-                    c
-                } else {
-                    c.reverse()
-                }
+                if asc { c } else { c.reverse() }
             }),
         }
         self.invalidate_wrap_cache();
@@ -2146,26 +2145,26 @@ impl App {
 
     fn enter_search(&mut self) {
         self.search_mode = true;
-        self.search_base_tracks = self.filtered_tracks.clone();
+        self.search_base_tracks = self.track_list.items.clone();
         // Switch to track list panel so keypresses go to the search bar
         self.active_panel = Panel::TrackList;
     }
 
     fn play_selected(&mut self) {
-        if self.filtered_tracks.is_empty() {
+        if self.track_list.is_empty() {
             return;
         }
-        let idx = self.track_list_index.min(self.filtered_tracks.len() - 1);
+        let idx = self.track_list.index.min(self.track_list.items.len() - 1);
 
         // If queue is empty, start a new queue from filtered tracks.
         // Otherwise, just play the selected track from the current queue.
         if self.player.queue.is_empty() {
-            self.player.set_queue(self.filtered_tracks.clone(), idx);
+            self.player.set_queue(self.track_list.items.clone(), idx);
             // Update UI's queue_index to match
             self.queue_index = idx;
         } else {
             // Add the selected track to the queue if not already there
-            let track = self.filtered_tracks[idx].clone();
+            let track = self.track_list.items[idx].clone();
             if !self.player.queue.iter().any(|t| t.path == track.path) {
                 self.player.queue.push(track.clone());
             }
@@ -2174,7 +2173,7 @@ impl App {
                 .player
                 .queue
                 .iter()
-                .position(|t| t.path == self.filtered_tracks[idx].path)
+                .position(|t| t.path == self.track_list.items[idx].path)
             {
                 self.player.queue_index = pos;
                 // Update UI's queue_index to match
@@ -2182,6 +2181,7 @@ impl App {
             }
         }
 
+        self.restored_position = None;
         let track = self.player.queue[self.player.queue_index].clone();
         match self.player.play_track(track) {
             Ok(_) => {
@@ -2209,6 +2209,7 @@ impl App {
 
     fn play_queue_selected(&mut self) {
         if self.queue_index < self.player.queue.len() {
+            self.restored_position = None;
             self.player.queue_index = self.queue_index;
             let track = self.player.queue[self.queue_index].clone();
             match self.player.play_track(track) {
@@ -2219,10 +2220,18 @@ impl App {
         }
     }
 
+    fn apply_restored_position(&mut self) {
+        if let Some(secs) = self.restored_position.take() {
+            if secs > 0 {
+                let _ = self.player.seek(std::time::Duration::from_secs(secs));
+            }
+        }
+    }
+
     fn add_selected_to_queue(&mut self) {
-        if self.selected_tracks.is_empty() {
+        if self.track_list.selected.is_empty() {
             // Add single track
-            if let Some(track) = self.filtered_tracks.get(self.track_list_index) {
+            if let Some(track) = self.track_list.items.get(self.track_list.index) {
                 let title = track.display_title().to_string();
                 self.player.add_to_queue(track.clone());
                 // Update UI's queue_index to point to the newly added track
@@ -2231,11 +2240,11 @@ impl App {
             }
         } else {
             // Add multiple selected tracks
-            let count = self.selected_tracks.len();
-            let indices = self.get_selected_indices_ascending();
+            let count = self.track_list.selected.len();
+            let indices = self.track_list.selected_ascending();
 
             for &idx in &indices {
-                if let Some(track) = self.filtered_tracks.get(idx) {
+                if let Some(track) = self.track_list.items.get(idx) {
                     self.player.add_to_queue(track.clone());
                 }
             }
@@ -2245,14 +2254,14 @@ impl App {
             self.set_status(format!("Added {} tracks to queue", count));
 
             // Clear selection after adding
-            self.clear_selection();
+            self.track_list.clear_selection();
         }
         self.persist_queue();
     }
 
     fn add_all_to_queue(&mut self) {
-        let n = self.filtered_tracks.len();
-        for t in &self.filtered_tracks {
+        let n = self.track_list.items.len();
+        for t in &self.track_list.items {
             self.player.queue.push(t.clone());
         }
         // Update UI's queue_index to point to the first newly added track
@@ -2264,18 +2273,18 @@ impl App {
     }
 
     fn toggle_favorite_selected(&mut self) {
-        if self.filtered_tracks.is_empty() {
+        if self.track_list.is_empty() {
             return;
         }
-        let indices: Vec<usize> = if self.selected_tracks.is_empty() {
-            vec![self.track_list_index.min(self.filtered_tracks.len() - 1)]
+        let indices: Vec<usize> = if self.track_list.selected.is_empty() {
+            vec![self.track_list.index.min(self.track_list.items.len() - 1)]
         } else {
-            self.get_selected_indices_ascending()
+            self.track_list.selected_ascending()
         };
 
         let paths: Vec<String> = indices
             .iter()
-            .filter_map(|&i| self.filtered_tracks.get(i).map(|t| t.path.clone()))
+            .filter_map(|&i| self.track_list.items.get(i).map(|t| t.path.clone()))
             .collect();
         if paths.is_empty() {
             return;
@@ -2302,18 +2311,16 @@ impl App {
             for t in self.all_tracks.iter_mut().filter(|t| &t.path == p) {
                 Arc::make_mut(t).favorite = target;
             }
-            for t in self.filtered_tracks.iter_mut().filter(|t| &t.path == p) {
+            for t in self.track_list.items.iter_mut().filter(|t| &t.path == p) {
                 Arc::make_mut(t).favorite = target;
             }
         }
 
         // If viewing favorites, drop unfavorited rows from the current list.
-        if matches!(self.sidebar_items.get(self.sidebar_index), Some(SidebarItem::Favorites))
-            && !target
-        {
-            self.filtered_tracks.retain(|t| t.favorite);
-            if self.track_list_index >= self.filtered_tracks.len() && self.track_list_index > 0 {
-                self.track_list_index = self.filtered_tracks.len().saturating_sub(1);
+        if matches!(self.sidebar_list.current(), Some(SidebarItem::Favorites)) && !target {
+            self.track_list.items.retain(|t| t.favorite);
+            if self.track_list.index >= self.track_list.items.len() && self.track_list.index > 0 {
+                self.track_list.index = self.track_list.items.len().saturating_sub(1);
             }
         }
 
@@ -2333,6 +2340,7 @@ impl App {
     pub fn persist_queue(&self) {
         if let Some(ref sdb) = self.state_db {
             let _ = sdb.save_queue(&self.player.queue, self.player.queue_index);
+            let _ = sdb.save_state("playback_position", &self.player.elapsed_secs().max(0).to_string());
         }
     }
 
@@ -2355,7 +2363,7 @@ impl App {
         let album_w = panel_w * 28 / 100;
 
         self.wrapped_tracks = self
-            .filtered_tracks
+            .track_list.items
             .iter()
             .map(|track| {
                 let fav = if track.favorite { FAVORITE_ICON } else { " " };
@@ -2420,6 +2428,34 @@ impl App {
         self.art.clear();
     }
 
+    fn queue_move_track_up(&mut self, index: usize) {
+        if index == 0 || index >= self.player.queue.len() {
+            return;
+        }
+        self.player.queue.swap(index - 1, index);
+        self.queue_index = index - 1;
+        if self.player.queue_index == index {
+            self.player.queue_index = index - 1;
+        } else if self.player.queue_index == index - 1 {
+            self.player.queue_index = index;
+        }
+        self.persist_queue();
+    }
+
+    fn queue_move_track_down(&mut self, index: usize) {
+        if index + 1 >= self.player.queue.len() {
+            return;
+        }
+        self.player.queue.swap(index, index + 1);
+        self.queue_index = index + 1;
+        if self.player.queue_index == index {
+            self.player.queue_index = index + 1;
+        } else if self.player.queue_index == index + 1 {
+            self.player.queue_index = index;
+        }
+        self.persist_queue();
+    }
+
     fn remove_from_queue(&mut self, index: usize) {
         let was_playing_current = index == self.player.queue_index;
         if was_playing_current {
@@ -2441,20 +2477,6 @@ impl App {
             }
         }
         self.persist_queue();
-    }
-
-    /// Get selected track indices sorted in ascending order
-    fn get_selected_indices_ascending(&self) -> Vec<usize> {
-        let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-        indices.sort_unstable();
-        indices
-    }
-
-    /// Get selected track indices sorted in descending order
-    fn get_selected_indices_descending(&self) -> Vec<usize> {
-        let mut indices: Vec<usize> = self.selected_tracks.iter().copied().collect();
-        indices.sort_unstable_by(|a, b| b.cmp(a));
-        indices
     }
 
     /// Get the current playlist name if in playlist context, otherwise returns None
@@ -2479,7 +2501,7 @@ impl App {
         if let Some(pl) = self.playlists.iter_mut().find(|p| p.name == pl_name) {
             operation(pl);
             let _ = pl.save();
-            self.filtered_tracks = self.load_playlist_tracks(&pl_name);
+            self.track_list.items = self.load_playlist_tracks(&pl_name);
             true
         } else {
             false
@@ -2544,67 +2566,38 @@ impl App {
             KeyCode::Esc => {
                 self.overlay = Overlay::None;
                 self.global_search_query.clear();
-                self.global_search_selected = 0;
-                self.global_search_results.clear();
+                self.global_search.index = 0;
+                self.global_search.items.clear();
             }
             KeyCode::Enter => {
                 self.navigate_global_search_selected();
                 self.overlay = Overlay::None;
                 self.global_search_query.clear();
-                self.global_search_selected = 0;
-                self.global_search_results.clear();
+                self.global_search.index = 0;
+                self.global_search.items.clear();
             }
             KeyCode::Backspace => {
                 self.global_search_query.pop();
                 self.recompute_global_search();
             }
-            KeyCode::Up => {
-                let total = self.global_search_total();
-                if total > 0 {
-                    self.global_search_selected = if self.global_search_selected == 0 {
-                        total - 1
-                    } else {
-                        self.global_search_selected - 1
-                    };
+            _ => {
+                // Only arrow/page/home/end navigate the list — vim-style
+                // letter shortcuts would swallow characters meant for the query.
+                if !self.global_search.navigate_arrows_only(key) {
+                    if let KeyCode::Char(c) = key {
+                        self.global_search_query.push(c);
+                        self.recompute_global_search();
+                    }
                 }
             }
-            KeyCode::Down => {
-                let total = self.global_search_total();
-                if total > 0 {
-                    self.global_search_selected = if self.global_search_selected + 1 >= total {
-                        0
-                    } else {
-                        self.global_search_selected + 1
-                    };
-                }
-            }
-            KeyCode::PageUp => {
-                self.global_search_selected = self.global_search_selected.saturating_sub(10);
-            }
-            KeyCode::PageDown => {
-                let total = self.global_search_total();
-                if total > 0 {
-                    self.global_search_selected =
-                        (self.global_search_selected + 10).min(total - 1);
-                }
-            }
-            KeyCode::Char(c) => {
-                self.global_search_query.push(c);
-                self.recompute_global_search();
-            }
-            _ => {}
         }
         false
     }
 
-    pub fn global_search_total(&self) -> usize {
-        self.global_search_results.len()
-    }
-
     fn recompute_global_search(&mut self) {
         if self.global_search_query.is_empty() {
-            self.global_search_results.clear();
-            self.global_search_selected = 0;
+            self.global_search.items.clear();
+            self.global_search.index = 0;
             return;
         }
 
@@ -2641,12 +2634,12 @@ impl App {
         }
 
         scored.sort_by(|a, b| b.0.cmp(&a.0));
-        self.global_search_results = scored.into_iter().take(50).map(|(_, r)| r).collect();
-        self.global_search_selected = 0;
+        self.global_search.items = scored.into_iter().take(50).map(|(_, r)| r).collect();
+        self.global_search.index = 0;
     }
 
     fn navigate_global_search_selected(&mut self) {
-        let Some(result) = self.global_search_results.get(self.global_search_selected).cloned()
+        let Some(result) = self.global_search.items.get(self.global_search.index).cloned()
         else {
             return;
         };
@@ -2658,9 +2651,9 @@ impl App {
                     self.navigate_to_sidebar_item(SidebarItem::Album(track.album.clone()));
                 }
                 if let Some(idx) =
-                    self.filtered_tracks.iter().position(|ft| ft.path == track.path)
+                    self.track_list.items.iter().position(|ft| ft.path == track.path)
                 {
-                    self.track_list_index = idx;
+                    self.track_list.index = idx;
                 }
                 self.invalidate_wrap_cache();
             }
@@ -2705,13 +2698,13 @@ impl App {
 
         self.rebuild_sidebar();
 
-        if let Some(idx) = self.sidebar_items.iter().position(|i| *i == item) {
-            self.sidebar_index = idx;
+        if let Some(idx) = self.sidebar_list.items.iter().position(|i| *i == item) {
+            self.sidebar_list.index = idx;
             self.on_sidebar_select();
         }
 
         self.active_panel = Panel::TrackList;
-        self.track_list_index = 0;
-        self.track_list_offset = 0;
+        self.track_list.index = 0;
+        self.track_list.offset = 0;
     }
 }

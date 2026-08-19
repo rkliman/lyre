@@ -2,12 +2,12 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
 
 use crate::app::App;
-use crate::types::{GlobalSearchResult, SetupField};
+use crate::types::{AddToPlaylistItem, GlobalSearchResult, SetupField};
 use super::overlay_block;
 
 pub(super) fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
@@ -155,13 +155,12 @@ pub(super) fn render_setup_database_overlay(
 pub(super) fn render_add_to_playlist_overlay(
     f: &mut Frame,
     area: Rect,
-    app: &App,
-    selected: usize,
+    app: &mut App,
     track_count: usize,
 ) {
     let c = &app.colors;
     let w = 50u16.min(area.width);
-    let h = (app.playlists.len() as u16 + 4).min(area.height);
+    let h = (app.add_to_playlist.len() as u16 + 4).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let popup = Rect { x, y, width: w, height: h };
@@ -184,72 +183,106 @@ pub(super) fn render_add_to_playlist_overlay(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let items: Vec<ListItem> = app
-        .playlists
+    let list_area = rows[0];
+    let visible_height = list_area.height as usize;
+    app.add_to_playlist.ensure_visible(visible_height);
+    let offset = app.add_to_playlist.offset;
+    let index = app.add_to_playlist.index;
+
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(c.overlay_bg)),
+        list_area,
+    );
+
+    for (row_i, (i, item)) in app
+        .add_to_playlist
+        .items
         .iter()
         .enumerate()
-        .map(|(i, pl)| {
-            let style = if i == selected {
-                app.colors.selected_style()
-            } else {
-                app.colors.normal_style()
-            };
-            let icon = if i == selected { "▶ " } else { "  " };
-            ListItem::new(Line::from(Span::styled(
-                format!("{}{}", icon, pl.name),
-                style,
-            )))
-        })
-        .collect();
-
-    let mut state = ListState::default();
-    state.select(Some(selected));
-    let list = List::new(items).style(Style::default().bg(c.overlay_bg));
-    f.render_stateful_widget(list, rows[0], &mut state);
+        .skip(offset)
+        .take(visible_height)
+        .enumerate()
+    {
+        let is_selected = i == index;
+        let icon = if is_selected { "▶ " } else { "  " };
+        let (label, style) = match item {
+            AddToPlaylistItem::NewPlaylist => {
+                let style = if is_selected {
+                    c.selected_style()
+                } else {
+                    c.dim_style().bg(c.overlay_bg)
+                };
+                (format!("{}+ New Playlist", icon), style)
+            }
+            AddToPlaylistItem::Existing(idx) => {
+                let name = app
+                    .playlists
+                    .get(*idx)
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("");
+                let style = if is_selected {
+                    c.selected_style()
+                } else {
+                    c.normal_style().bg(c.overlay_bg)
+                };
+                (format!("{}{}", icon, name), style)
+            }
+        };
+        let bg = if is_selected { c.selection_bg } else { c.overlay_bg };
+        let line_area = Rect {
+            x: list_area.x,
+            y: list_area.y + row_i as u16,
+            width: list_area.width,
+            height: 1,
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(label, style)))
+                .style(Style::default().bg(bg)),
+            line_area,
+        );
+    }
 
     f.render_widget(
         Paragraph::new(Span::styled(
             "Enter to add · Esc to cancel",
             app.colors.dim_style(),
         ))
-        .alignment(Alignment::Center),
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(c.overlay_bg)),
         rows[1],
     );
 }
 
-pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App) {
+pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut App) {
     let c = &app.colors;
 
-    let content: Vec<(String, Option<usize>)> = app
-        .global_search_results
+    let results: Vec<String> = app
+        .global_search
+        .items
         .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let label = match r {
-                GlobalSearchResult::Track(t) => {
-                    format!("🎵 {} — {}", t.display_title(), t.display_artist())
-                }
-                GlobalSearchResult::Album(name) => format!("💿 {}", name),
-                GlobalSearchResult::Artist(name) => format!("🎤 {}", name),
-                GlobalSearchResult::Playlist(name) => format!("📋 {}", name),
-                GlobalSearchResult::Genre(name) => format!("🎸 {}", name),
-            };
-            (label, Some(i))
+        .map(|r| match r {
+            GlobalSearchResult::Track(t) => {
+                format!("🎵 {} — {}", t.display_title(), t.display_artist())
+            }
+            GlobalSearchResult::Album(name) => format!("💿 {}", name),
+            GlobalSearchResult::Artist(name) => format!("🎤 {}", name),
+            GlobalSearchResult::Playlist(name) => format!("📃 {}", name),
+            GlobalSearchResult::Genre(name) => format!("🎸 {}", name),
         })
         .collect();
 
-    let has_results = !content.is_empty();
-
-    let content = if content.is_empty() && !app.global_search_query.is_empty() {
-        vec![("No results found.".to_string(), None)]
-    } else {
-        content
-    };
+    let has_results = !results.is_empty();
+    let empty_message = (!has_results && !app.global_search_query.is_empty())
+        .then(|| "No results found.".to_string());
 
     // Size the popup to fit content: border(2) + search box(3) + content + footer(1 if results)
-    let content_lines = content.len() as u16;
+    let display_line_count = if has_results {
+        results.len() as u16
+    } else {
+        empty_message.is_some() as u16
+    };
     let footer_h: u16 = if has_results || !app.global_search_query.is_empty() { 1 } else { 0 };
-    let natural_h = 2 + 3 + content_lines + footer_h;
+    let natural_h = 2 + 4 + display_line_count + footer_h;
     let max_h = area.height * 80 / 100;
     let h = natural_h.max(5).min(max_h).min(area.height);
 
@@ -268,12 +301,13 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App)
 
     let constraints = if footer_h > 0 {
         vec![
+            Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(1),
         ]
     } else {
-        vec![Constraint::Length(3), Constraint::Min(0)]
+        vec![Constraint::Length(1), Constraint::Length(3), Constraint::Min(0)]
     };
 
     let layout = Layout::default()
@@ -281,8 +315,9 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App)
         .constraints(constraints)
         .split(inner);
 
-    let search_area = layout[0];
-    let results_area = layout[1];
+    let help_area = layout[0];
+    let search_area = layout[1];
+    let results_area = layout[2];
 
     // Search input box
     let search_box = Block::default()
@@ -306,46 +341,41 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App)
         search_inner,
     );
 
+    let help_text = Line::from(vec![
+        Span::styled(
+            "🎵 Song - 💿 Album - 🎤 Artist - 📃 Playlist",
+             c.header_style(),
+        )]
+    );
+
+    //help
+    f.render_widget(Paragraph::new(help_text).alignment(Alignment::Center), help_area);
+
     // Results
     let visible_height = results_area.height as usize;
-    let total_lines = content.len();
-
-    let selected_line_idx = content
-        .iter()
-        .position(|l| l.1 == Some(app.global_search_selected))
-        .unwrap_or(0);
-
-    let scroll = if total_lines <= visible_height {
-        0
-    } else {
-        let half = visible_height / 2;
-        selected_line_idx
-            .saturating_sub(half)
-            .min(total_lines.saturating_sub(visible_height))
-    };
-
     let max_text_width = results_area.width.saturating_sub(5) as usize;
 
-    for (i, (text, flat_index)) in
-        content.iter().enumerate().skip(scroll).take(visible_height)
-    {
-        let y_pos = results_area.y + (i - scroll) as u16;
-        let line_area = Rect {
-            x: results_area.x,
-            y: y_pos,
-            width: results_area.width,
-            height: 1,
-        };
+    if has_results {
+        app.global_search.ensure_visible(visible_height);
+        let offset = app.global_search.offset;
+        let index = app.global_search.index;
 
-        if let Some(fi) = flat_index {
-            let is_selected = *fi == app.global_search_selected;
+        for (row_i, (i, text)) in
+            results.iter().enumerate().skip(offset).take(visible_height).enumerate()
+        {
+            let line_area = Rect {
+                x: results_area.x,
+                y: results_area.y + row_i as u16,
+                width: results_area.width,
+                height: 1,
+            };
+            let is_selected = i == index;
             let icon = if is_selected { "• " } else { "  " };
             let style = if is_selected {
                 c.selected_style()
             } else {
                 c.normal_style().bg(c.overlay_bg)
             };
-
             let display_text: String = if text.chars().count() > max_text_width {
                 let truncated: String =
                     text.chars().take(max_text_width.saturating_sub(1)).collect();
@@ -353,12 +383,7 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App)
             } else {
                 text.clone()
             };
-
-            let bg = if is_selected {
-                c.selection_bg
-            } else {
-                c.overlay_bg
-            };
+            let bg = if is_selected { c.selection_bg } else { c.overlay_bg };
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(
                     format!(" {}{}", icon, display_text),
@@ -367,21 +392,27 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &App)
                 .style(Style::default().bg(bg)),
                 line_area,
             );
-        } else {
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    format!("  {}", text),
-                    c.dim_style().bg(c.overlay_bg),
-                )))
-                .style(Style::default().bg(c.overlay_bg)),
-                line_area,
-            );
         }
+    } else if let Some(msg) = &empty_message {
+        let line_area = Rect {
+            x: results_area.x,
+            y: results_area.y,
+            width: results_area.width,
+            height: 1,
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!("  {}", msg),
+                c.dim_style().bg(c.overlay_bg),
+            )))
+            .style(Style::default().bg(c.overlay_bg)),
+            line_area,
+        );
     }
 
     // Footer
     if footer_h > 0 {
-        let footer_area = layout[2];
+        let footer_area = layout[3];
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "Enter to select · Esc to cancel",

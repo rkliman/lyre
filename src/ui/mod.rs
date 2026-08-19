@@ -1,13 +1,14 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
 use crate::app::App;
-use crate::types::Overlay;
+use crate::colors::ColorScheme;
+use crate::types::{Overlay, PlayerState};
 
 mod art_window;
 mod lyrics;
@@ -25,6 +26,61 @@ use queue::render_queue;
 use sidebar::render_sidebar;
 use track_info::render_track_info;
 use tracklist::render_tracklist;
+
+/// Shared visual state for a single track row, used by both the track list and queue panels.
+pub(super) struct ListRowStyle {
+    pub bg: Color,
+    pub fg: Color,
+    pub bold: bool,
+    /// Single-character indicator: "▶", "⏸", "*", or " ".
+    pub icon: &'static str,
+}
+
+impl ListRowStyle {
+    pub fn to_style(&self) -> Style {
+        let s = Style::default().fg(self.fg).bg(self.bg);
+        if self.bold { s.add_modifier(Modifier::BOLD) } else { s }
+    }
+}
+
+pub(super) fn list_row_style(
+    c: &ColorScheme,
+    is_selected: bool,
+    is_in_multiselect: bool,
+    is_playing: bool,
+    active: bool,
+    player_state: &PlayerState,
+) -> ListRowStyle {
+    let bg = if is_selected || is_in_multiselect { c.selection_bg } else { c.background };
+
+    let fg = if is_selected && active {
+        c.highlight
+    } else if is_selected {
+        c.accent2
+    } else if is_in_multiselect {
+        c.accent
+    } else if is_playing {
+        c.playing
+    } else {
+        c.foreground
+    };
+
+    let bold = (is_selected && active) || is_in_multiselect;
+
+    let icon = if is_playing {
+        match player_state {
+            PlayerState::Playing => "▶",
+            PlayerState::Paused => "⏸",
+            PlayerState::Stopped => " ",
+        }
+    } else if is_in_multiselect {
+        "*"
+    } else {
+        " "
+    };
+
+    ListRowStyle { bg, fg, bold, icon }
+}
 
 fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
@@ -138,16 +194,19 @@ pub fn render(f: &mut Frame, app: &mut App) {
         render_track_info(f, app, area);
     }
 
-    match &app.overlay {
-        Overlay::NewPlaylist(name) => render_new_playlist_overlay(f, area, app, name),
-        Overlay::AddToPlaylist { track_paths, selected } => {
-            render_add_to_playlist_overlay(f, area, app, *selected, track_paths.len())
+    // Clone the overlay so renderers can also mutate `app` (e.g. to update
+    // viewport offsets on NavigableList state).
+    let overlay = app.overlay.clone();
+    match overlay {
+        Overlay::NewPlaylist { name, .. } => render_new_playlist_overlay(f, area, app, &name),
+        Overlay::AddToPlaylist { track_paths } => {
+            render_add_to_playlist_overlay(f, area, app, track_paths.len())
         }
         Overlay::SetupDatabase {
             database_name,
             music_directory,
             active_field,
-        } => render_setup_database_overlay(f, area, app, database_name, music_directory, active_field),
+        } => render_setup_database_overlay(f, area, app, &database_name, &music_directory, &active_field),
         Overlay::GlobalSearch => render_global_search_overlay(f, area, app),
         Overlay::None => {}
     }

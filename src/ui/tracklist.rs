@@ -7,10 +7,10 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::types::{Panel, PlayerState};
+use crate::types::Panel;
 use crate::util::FAVORITE_ICON;
 
-use super::panel_block;
+use super::{list_row_style, panel_block};
 
 pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let c = app.colors.clone();
@@ -50,8 +50,8 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let header_area = inner_rows[2];
     let list_area = inner_rows[3];
 
-    let total_dur: i64 = app.filtered_tracks.iter().map(|t| t.duration).sum();
-    let track_count = app.filtered_tracks.len();
+    let total_dur: i64 = app.track_list.items.iter().map(|t| t.duration).sum();
+    let track_count = app.track_list.items.len();
     let summary = format!(
         "({} track{}, {})",
         track_count,
@@ -93,8 +93,8 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let result_hint = if has_query {
         format!(
             "  {} result{}",
-            app.filtered_tracks.len(),
-            if app.filtered_tracks.len() == 1 { "" } else { "s" }
+            app.track_list.items.len(),
+            if app.track_list.items.len() == 1 { "" } else { "s" }
         )
     } else {
         String::new()
@@ -172,7 +172,7 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         app.rebuild_wrapped_tracks(w);
     }
 
-    let sel = app.track_list_index;
+    let sel = app.track_list.index;
     let row_heights: Vec<usize> = app
         .wrapped_tracks
         .iter()
@@ -184,12 +184,12 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         let sel_clamped = sel.min(row_heights.len().saturating_sub(1));
         let sel_start: usize = row_heights[..sel_clamped].iter().sum();
         let sel_end = sel_start + row_heights[sel_clamped];
-        let offset_rows: usize = row_heights[..app.track_list_offset.min(row_heights.len())]
+        let offset_rows: usize = row_heights[..app.track_list.offset.min(row_heights.len())]
             .iter()
             .sum();
 
         if sel_start < offset_rows {
-            app.track_list_offset = sel_clamped;
+            app.track_list.offset = sel_clamped;
         } else if sel_end > offset_rows + visible_height {
             let mut consumed = 0usize;
             let mut new_offset = sel_clamped;
@@ -203,7 +203,7 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
                     new_offset = 0;
                 }
             }
-            app.track_list_offset = new_offset;
+            app.track_list.offset = new_offset;
         }
     }
 
@@ -214,48 +214,19 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         .wrapped_tracks
         .iter()
         .enumerate()
-        .skip(app.track_list_offset)
+        .skip(app.track_list.offset)
     {
         if y >= bottom {
             break;
         }
 
-        let track = &app.filtered_tracks[i];
-        let is_selected = i == app.track_list_index;
-        let is_in_multiselect = app.selected_tracks.contains(&i);
+        let track = &app.track_list.items[i];
+        let is_selected = i == app.track_list.index;
+        let is_in_multiselect = app.track_list.selected.contains(&i);
         let is_playing = playing_path.as_deref() == Some(&track.path);
 
-        let row_bg = if is_selected {
-            c.selection_bg
-        } else if is_in_multiselect {
-            c.selection_bg
-        } else {
-            c.background
-        };
-        let fg = if is_selected && active {
-            c.highlight
-        } else if is_selected {
-            c.accent2
-        } else if is_in_multiselect {
-            c.accent
-        } else if is_playing {
-            c.playing
-        } else {
-            c.foreground
-        };
-        let bold = (is_selected && active) || is_in_multiselect;
-
-        let play_icon = if is_playing {
-            match app.player.state {
-                PlayerState::Playing => "▶",
-                PlayerState::Paused => "⏸",
-                PlayerState::Stopped => " ",
-            }
-        } else if is_in_multiselect {
-            "*"
-        } else {
-            " "
-        };
+        let row = list_row_style(&c, is_selected, is_in_multiselect, is_playing, active, &app.player.state);
+        let (row_bg, fg, bold, play_icon) = (row.bg, row.fg, row.bold, row.icon);
 
         let render_lines: &[String] = if is_selected {
             expanded

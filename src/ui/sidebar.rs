@@ -40,8 +40,8 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut display_items: Vec<(usize, Line)> = Vec::new();
     let mut search_boxes: Vec<(usize, String, String)> = Vec::new();
 
-    for (i, item) in app.sidebar_items.iter().enumerate() {
-        let is_selected = i == app.sidebar_index;
+    for (i, item) in app.sidebar_list.items.iter().enumerate() {
+        let is_selected = i == app.sidebar_list.index;
 
         let style = if item.is_header() {
             c.accent_bold_style()
@@ -66,7 +66,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 
             if expanded && !section_key.is_empty() {
                 if let Some(search_section) = &app.sidebar_search_section {
-                    if search_section == section_key
+                    if search_section.as_str() == section_key
                         && (app.sidebar_search_mode || !app.sidebar_search_query.is_empty())
                     {
                         search_boxes.push((
@@ -92,7 +92,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         if search_boxes.iter().any(|(pos, _, _)| *pos == display_idx) {
             current_line += 3;
         }
-        if *original_idx == app.sidebar_index {
+        if *original_idx == app.sidebar_list.index {
             selected_display_line = current_line;
         }
         current_line += 1;
@@ -102,15 +102,15 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 
     let total_display_lines = current_line;
     if total_display_lines <= visible_height {
-        app.sidebar_offset = 0;
-    } else if app.sidebar_offset > total_display_lines - visible_height {
-        app.sidebar_offset = total_display_lines - visible_height;
+        app.sidebar_list.offset = 0;
+    } else if app.sidebar_list.offset > total_display_lines - visible_height {
+        app.sidebar_list.offset = total_display_lines - visible_height;
     }
 
-    if selected_display_line < app.sidebar_offset {
-        app.sidebar_offset = selected_display_line;
-    } else if selected_display_line >= app.sidebar_offset + visible_height {
-        app.sidebar_offset = selected_display_line.saturating_sub(visible_height - 1);
+    if selected_display_line < app.sidebar_list.offset {
+        app.sidebar_list.offset = selected_display_line;
+    } else if selected_display_line >= app.sidebar_list.offset + visible_height {
+        app.sidebar_list.offset = selected_display_line.saturating_sub(visible_height - 1);
     }
 
     let mut y_offset = 0u16;
@@ -118,13 +118,13 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 
     for (display_idx, (original_idx, line)) in display_items.iter().enumerate() {
         if let Some((_, section, query)) = search_boxes.iter().find(|(pos, _, _)| *pos == display_idx) {
-            if current_display_line + 3 <= app.sidebar_offset {
+            if current_display_line + 3 <= app.sidebar_list.offset {
                 current_display_line += 3;
                 continue;
             }
 
-            if current_display_line < app.sidebar_offset + visible_height {
-                let skip_lines = app.sidebar_offset.saturating_sub(current_display_line);
+            if current_display_line < app.sidebar_list.offset + visible_height {
+                let skip_lines = app.sidebar_list.offset.saturating_sub(current_display_line);
                 if skip_lines < 3 {
                     let search_area = Rect {
                         x: inner.x,
@@ -139,7 +139,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             current_display_line += 3;
         }
 
-        if current_display_line < app.sidebar_offset {
+        if current_display_line < app.sidebar_list.offset {
             current_display_line += 1;
             continue;
         }
@@ -155,7 +155,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             height: 1,
         };
 
-        let is_highlighted = *original_idx == app.sidebar_index;
+        let is_highlighted = *original_idx == app.sidebar_list.index;
         let item_style = if is_highlighted {
             Style::default().bg(c.selection_bg)
         } else {

@@ -14,6 +14,7 @@ pub enum Action {
     MoveUp, MoveDown, PageUp, PageDown,
     GoToTop, GoToBottom, MoveLeft, MoveRight, Enter,
     ExtendSelectionUp, ExtendSelectionDown,
+    ExtendSelectionPageUp, ExtendSelectionPageDown,
 
     CycleSort, ToggleSortOrder, EnterSearch,
 
@@ -91,6 +92,12 @@ impl Keybindings {
             kb!(vec![Char('k'), Up], Action::MoveUp, Global),
             kb!(vec![Up], Action::ExtendSelectionUp, Panel(Panel::TrackList), KeyModifiers::SHIFT),
             kb!(vec![Down], Action::ExtendSelectionDown, Panel(Panel::TrackList), KeyModifiers::SHIFT),
+            kb!(vec![PageUp], Action::ExtendSelectionPageUp, Panel(Panel::TrackList), KeyModifiers::SHIFT),
+            kb!(vec![PageDown], Action::ExtendSelectionPageDown, Panel(Panel::TrackList), KeyModifiers::SHIFT),
+            kb!(vec![Up], Action::ExtendSelectionUp, Panel(Panel::Queue), KeyModifiers::SHIFT),
+            kb!(vec![Down], Action::ExtendSelectionDown, Panel(Panel::Queue), KeyModifiers::SHIFT),
+            kb!(vec![PageUp], Action::ExtendSelectionPageUp, Panel(Panel::Queue), KeyModifiers::SHIFT),
+            kb!(vec![PageDown], Action::ExtendSelectionPageDown, Panel(Panel::Queue), KeyModifiers::SHIFT),
             kb!(vec![Char('g'), Home], Action::GoToTop, Global),
             kb!(vec![Char('G'), End], Action::GoToBottom, Global),
             kb!(vec![Char('u'), PageUp], Action::PageUp, Global),
@@ -126,11 +133,12 @@ impl Keybindings {
             kb!(vec![Esc, Char('i')], Action::InfoClose, Global),
 
             // Playlists
-            kb!(vec![Char('N')], Action::NewPlaylist, Panel(Panel::Sidebar)),
             kb!(vec![Char('P')], Action::AddToPlaylist, Global),
             kb!(vec![Char('x'), Delete], Action::RemoveFromPlaylist, Panel(Panel::TrackList)),
             kb!(vec![Char('K')], Action::MoveTrackUp, Panel(Panel::TrackList)),
             kb!(vec![Char('J')], Action::MoveTrackDown, Panel(Panel::TrackList)),
+            kb!(vec![Char('K')], Action::MoveTrackUp, Panel(Panel::Queue)),
+            kb!(vec![Char('J')], Action::MoveTrackDown, Panel(Panel::Queue)),
 
             // Other
             kb!(vec![Char('?')], Action::ToggleHelp, Global),
@@ -277,7 +285,10 @@ impl Keybindings {
                 (k(AddAllToQueue), "Add all visible tracks to queue"),
                 (k(RemoveFromQueue), "Remove selected from queue"),
                 (k(ClearQueue), "Clear entire queue"),
-                ("Shift+↑ / Shift+↓".to_string(), "Multi-select tracks (in track list)"),
+                (kctx(MoveTrackUp, "in queue"), "Move track up in queue"),
+                (kctx(MoveTrackDown, "in queue"), "Move track down in queue"),
+                ("Shift+↑ / Shift+↓".to_string(), "Multi-select tracks (row by row)"),
+                ("Shift+PgUp / Shift+PgDn".to_string(), "Multi-select tracks (by page)"),
             ]),
             ("Library", vec![
                 (k(GlobalSearch), "Open global search"),

@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{List, ListItem, ListState, Paragraph, Wrap},
     Frame,
@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::types::{Panel, PlayerState};
 use crate::util::truncate_field;
 
-use super::panel_block;
+use super::{list_row_style, panel_block};
 
 pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     let c = &app.colors;
@@ -52,16 +52,11 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             let is_playing =
                 i == app.player.queue_index && app.player.state != PlayerState::Stopped;
             let is_selected = i == app.queue_index;
+            let is_in_multiselect = app.queue_selected.contains(&i);
 
-            let icon = if is_playing {
-                match app.player.state {
-                    PlayerState::Playing => "▶ ",
-                    PlayerState::Paused => "⏸ ",
-                    PlayerState::Stopped => "  ",
-                }
-            } else {
-                "  "
-            };
+            let row = list_row_style(c, is_selected, is_in_multiselect, is_playing, active, &app.player.state);
+            let style = row.to_style();
+            let icon = format!("{} ", row.icon);
 
             let dur_str = track.duration_str();
             let dur_width = dur_str.len();
@@ -71,19 +66,7 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             let title_artist = format!("{} - {}", track.display_title(), track.display_artist());
             let title_str = truncate_field(&title_artist, title_max);
 
-            let style = if is_selected && active {
-                c.selected_style()
-            } else if is_selected {
-                c.selected_accent2_style()
-            } else if is_playing {
-                Style::default().fg(c.playing).add_modifier(Modifier::BOLD)
-            } else {
-                c.normal_style()
-            };
-
-            let dur_style = if is_selected && active {
-                style
-            } else if is_selected {
+            let dur_style = if is_selected || is_in_multiselect {
                 style
             } else {
                 c.dim_style()
