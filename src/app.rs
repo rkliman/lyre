@@ -11,9 +11,9 @@ use crate::player::Player;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::state::StateDb;
 use crate::types::{
-    LoopMode, LyricsFetchStatus, LyricsState, Overlay, Panel, PlayerState, Result, SetupField,
-    SidebarItem, SidebarSection, SidebarSectionState, SidebarSections, SortField, SortOrder,
-    Track, TrackContext,
+    GlobalSearchResult, LoopMode, LyricsFetchStatus, LyricsState, Overlay, Panel, PlayerState,
+    Result, SetupField, SidebarItem, SidebarSection, SidebarSectionState, SidebarSections,
+    SortField, SortOrder, Track, TrackContext,
 };
 
 fn default_sidebar_expanded() -> HashMap<String, bool> {
@@ -43,6 +43,7 @@ pub struct App {
     pub search_base_tracks: Vec<Arc<Track>>,
     pub matcher: SkimMatcherV2,
     pub track_context: TrackContext,
+    pub track_heading: String,
     // Pre-computed display lines per track.
     // Each entry is (collapsed_line, expanded_lines).
     // collapsed_line: single row with … truncation for non-selected display.
@@ -74,6 +75,9 @@ pub struct App {
     pub status_message: Option<String>,
     pub art: crate::art::AlbumArtState,
     pub overlay: Overlay,
+    pub global_search_query: String,
+    pub global_search_selected: usize,
+    pub global_search_results: Vec<GlobalSearchResult>,
     pub show_help: bool,
     pub help_scroll: usize,
     pub show_info: bool,
@@ -217,6 +221,7 @@ impl App {
                     search_base_tracks,
                     matcher: SkimMatcherV2::default(),
                     track_context: TrackContext::Library,
+                    track_heading: "All Tracks".to_string(),
                     wrapped_tracks: Vec::new(),
                     wrapped_width: 0,
                     sidebar: SidebarSections {
@@ -255,6 +260,9 @@ impl App {
                         ..Default::default()
                     },
                     overlay: Overlay::None,
+                    global_search_query: String::new(),
+                    global_search_selected: 0,
+                    global_search_results: Vec::new(),
                     show_help: false,
                     help_scroll: 0,
                     show_info: false,
@@ -310,6 +318,7 @@ impl App {
             search_base_tracks: Vec::new(),
             matcher: SkimMatcherV2::default(),
             track_context: TrackContext::Library,
+            track_heading: "All Tracks".to_string(),
             wrapped_tracks: Vec::new(),
             wrapped_width: 0,
             sidebar: SidebarSections {
@@ -346,6 +355,9 @@ impl App {
                 ..Default::default()
             },
             overlay,
+            global_search_query: String::new(),
+            global_search_selected: 0,
+            global_search_results: Vec::new(),
             show_help: false,
             help_scroll: 0,
             show_info: false,
@@ -453,10 +465,13 @@ impl App {
     }
 
     pub fn tick(&mut self) {
-        if self.player.is_finished() {
-            let _ = self.player.next();
+        if self.player.poll_track_transition() {
             self.refresh_album_art();
             self.persist_queue();
+        }
+        self.player.maybe_prebuffer_next();
+        if self.player.is_finished() {
+            self.player.stop();
         }
 
         // Flush any pending lyric tag writes for tracks not currently playing.
@@ -564,6 +579,10 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        if matches!(self.overlay, Overlay::GlobalSearch) {
+            return self.handle_global_search_key(key.code);
+        }
+
         // Handle sidebar search mode before keybindings lookup
         if self.sidebar_search_mode {
             return self.handle_sidebar_search_key(key.code);
@@ -686,7 +705,6 @@ impl App {
                 self.refresh_album_art();
                 self.persist_queue();
             }
-            Action::Stop => self.player.stop(),
             Action::VolumeUp => {
                 self.player.volume_up();
                 self.persist_player_setting("volume", &self.player.volume.to_string());
@@ -756,8 +774,10 @@ impl App {
                             _ => None,
                         };
                         if let Some(s) = section {
-                            self.sidebar_search_mode = true;
-                            self.sidebar_search_section = Some(s.to_string());
+                            if *self.sidebar_expanded.get(s).unwrap_or(&true) {
+                                self.sidebar_search_mode = true;
+                                self.sidebar_search_section = Some(s.to_string());
+                            }
                         }
                     }
                 } else {
@@ -859,6 +879,13 @@ impl App {
 
             Action::ToggleFavorite => self.toggle_favorite_selected(),
 
+            Action::GlobalSearch => {
+                self.overlay = Overlay::GlobalSearch;
+                self.global_search_query.clear();
+                self.global_search_selected = 0;
+                self.global_search_results.clear();
+            }
+
             Action::InfoClose => {
                 self.show_info = false;
                 self.info_editing = false;
@@ -957,7 +984,7 @@ impl App {
                     }
                 }
             }
-            Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::None => {}
         }
     }
 
@@ -986,7 +1013,7 @@ impl App {
                 };
             }
             Overlay::AddToPlaylist { .. } => {}
-            Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::None => {}
         }
     }
 
@@ -1019,7 +1046,7 @@ impl App {
                 };
             }
             Overlay::AddToPlaylist { .. } => {}
-            Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::None => {}
         }
     }
 
@@ -1049,7 +1076,7 @@ impl App {
                     selected: new_selected as usize,
                 };
             }
-            Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::None => {}
         }
     }
 
@@ -1058,14 +1085,14 @@ impl App {
     fn handle_list_navigation(key: KeyCode, index: &mut usize, max_len: usize) -> bool {
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
-                if *index > 0 {
-                    *index -= 1;
+                if max_len > 0 {
+                    *index = if *index == 0 { max_len - 1 } else { *index - 1 };
                 }
                 true
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if *index + 1 < max_len {
-                    *index += 1;
+                if max_len > 0 {
+                    *index = if *index + 1 >= max_len { 0 } else { *index + 1 };
                 }
                 true
             }
@@ -1569,6 +1596,8 @@ impl App {
         if item.is_header() {
             return;
         }
+
+        self.track_heading = item.title();
 
         self.search_query.clear();
         self.clear_selection();
@@ -2508,5 +2537,181 @@ impl App {
         } else {
             None
         }
+    }
+
+    fn handle_global_search_key(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Esc => {
+                self.overlay = Overlay::None;
+                self.global_search_query.clear();
+                self.global_search_selected = 0;
+                self.global_search_results.clear();
+            }
+            KeyCode::Enter => {
+                self.navigate_global_search_selected();
+                self.overlay = Overlay::None;
+                self.global_search_query.clear();
+                self.global_search_selected = 0;
+                self.global_search_results.clear();
+            }
+            KeyCode::Backspace => {
+                self.global_search_query.pop();
+                self.recompute_global_search();
+            }
+            KeyCode::Up => {
+                let total = self.global_search_total();
+                if total > 0 {
+                    self.global_search_selected = if self.global_search_selected == 0 {
+                        total - 1
+                    } else {
+                        self.global_search_selected - 1
+                    };
+                }
+            }
+            KeyCode::Down => {
+                let total = self.global_search_total();
+                if total > 0 {
+                    self.global_search_selected = if self.global_search_selected + 1 >= total {
+                        0
+                    } else {
+                        self.global_search_selected + 1
+                    };
+                }
+            }
+            KeyCode::PageUp => {
+                self.global_search_selected = self.global_search_selected.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                let total = self.global_search_total();
+                if total > 0 {
+                    self.global_search_selected =
+                        (self.global_search_selected + 10).min(total - 1);
+                }
+            }
+            KeyCode::Char(c) => {
+                self.global_search_query.push(c);
+                self.recompute_global_search();
+            }
+            _ => {}
+        }
+        false
+    }
+
+    pub fn global_search_total(&self) -> usize {
+        self.global_search_results.len()
+    }
+
+    fn recompute_global_search(&mut self) {
+        if self.global_search_query.is_empty() {
+            self.global_search_results.clear();
+            self.global_search_selected = 0;
+            return;
+        }
+
+        let q = self.global_search_query.clone();
+        let matcher = &self.matcher;
+
+        let mut scored: Vec<(i64, GlobalSearchResult)> = Vec::new();
+
+        for t in &self.all_tracks {
+            let h = format!("{} {} {} {}", t.title, t.artist, t.albumartist, t.album);
+            if let Some(s) = matcher.fuzzy_match(&h, &q) {
+                scored.push((s, GlobalSearchResult::Track(Arc::clone(t))));
+            }
+        }
+        for a in &self.sidebar.albums.items {
+            if let Some(s) = matcher.fuzzy_match(a, &q) {
+                scored.push((s, GlobalSearchResult::Album(a.clone())));
+            }
+        }
+        for a in &self.sidebar.artists.items {
+            if let Some(s) = matcher.fuzzy_match(a, &q) {
+                scored.push((s, GlobalSearchResult::Artist(a.clone())));
+            }
+        }
+        for p in &self.sidebar.playlists.items {
+            if let Some(s) = matcher.fuzzy_match(p, &q) {
+                scored.push((s, GlobalSearchResult::Playlist(p.clone())));
+            }
+        }
+        for g in &self.sidebar.genres.items {
+            if let Some(s) = matcher.fuzzy_match(g, &q) {
+                scored.push((s, GlobalSearchResult::Genre(g.clone())));
+            }
+        }
+
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        self.global_search_results = scored.into_iter().take(50).map(|(_, r)| r).collect();
+        self.global_search_selected = 0;
+    }
+
+    fn navigate_global_search_selected(&mut self) {
+        let Some(result) = self.global_search_results.get(self.global_search_selected).cloned()
+        else {
+            return;
+        };
+        match result {
+            GlobalSearchResult::Track(track) => {
+                if track.album.is_empty() {
+                    self.navigate_to_sidebar_item(SidebarItem::AllTracks);
+                } else {
+                    self.navigate_to_sidebar_item(SidebarItem::Album(track.album.clone()));
+                }
+                if let Some(idx) =
+                    self.filtered_tracks.iter().position(|ft| ft.path == track.path)
+                {
+                    self.track_list_index = idx;
+                }
+                self.invalidate_wrap_cache();
+            }
+            GlobalSearchResult::Album(name) => {
+                self.navigate_to_sidebar_item(SidebarItem::Album(name));
+            }
+            GlobalSearchResult::Artist(name) => {
+                self.navigate_to_sidebar_item(SidebarItem::Artist(name));
+            }
+            GlobalSearchResult::Playlist(name) => {
+                self.navigate_to_sidebar_item(SidebarItem::Playlist(name));
+            }
+            GlobalSearchResult::Genre(name) => {
+                self.navigate_to_sidebar_item(SidebarItem::Genre(name));
+            }
+        }
+    }
+
+    fn navigate_to_sidebar_item(&mut self, item: SidebarItem) {
+        self.sidebar_search_mode = false;
+        self.sidebar_search_query.clear();
+        self.sidebar_search_section = None;
+        for sec in SidebarSection::ALL {
+            self.sidebar.get_mut(sec).filter_indices = None;
+        }
+
+        match &item {
+            SidebarItem::Artist(_) => {
+                self.sidebar_expanded.insert("Artists".to_string(), true);
+            }
+            SidebarItem::Album(_) => {
+                self.sidebar_expanded.insert("Albums".to_string(), true);
+            }
+            SidebarItem::Genre(_) => {
+                self.sidebar_expanded.insert("Genres".to_string(), true);
+            }
+            SidebarItem::Playlist(_) => {
+                self.sidebar_expanded.insert("Playlists".to_string(), true);
+            }
+            _ => {}
+        }
+
+        self.rebuild_sidebar();
+
+        if let Some(idx) = self.sidebar_items.iter().position(|i| *i == item) {
+            self.sidebar_index = idx;
+            self.on_sidebar_select();
+        }
+
+        self.active_panel = Panel::TrackList;
+        self.track_list_index = 0;
+        self.track_list_offset = 0;
     }
 }

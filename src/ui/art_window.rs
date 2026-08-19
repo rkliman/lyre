@@ -1,6 +1,5 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Modifier, Style},
     text::Span,
     widgets::{Block, BorderType, Borders, Paragraph, Wrap},
     Frame,
@@ -15,12 +14,12 @@ pub(super) fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
             format!(" Album Art [{}] ", toggle_key),
-            Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
+            c.accent_bold_style(),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(c.accent2))
-        .style(Style::default().bg(c.background));
+        .border_style(c.border_style())
+        .style(c.block_style());
 
     let inner = block.inner(area);
     let background = c.background;
@@ -34,7 +33,7 @@ pub(super) fn render_art_window(f: &mut Frame, app: &mut App, area: Rect) {
         app.art.window_cache.render(f, inner, img, app.art.picker.as_mut(), background);
     } else {
         let placeholder = Paragraph::new(format!("No album art available\n\nPress {} to hide", toggle_key))
-            .style(Style::default().fg(c.dim))
+            .style(c.dim_style())
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
         f.render_widget(placeholder, inner);

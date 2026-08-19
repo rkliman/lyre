@@ -10,7 +10,6 @@ use crate::app::App;
 use crate::types::Overlay;
 
 mod art_window;
-mod help;
 mod lyrics;
 mod overlays;
 mod player;
@@ -19,9 +18,8 @@ mod sidebar;
 mod track_info;
 mod tracklist;
 
-use help::render_help;
 use lyrics::render_lyrics;
-use overlays::{render_add_to_playlist_overlay, render_new_playlist_overlay, render_setup_database_overlay};
+use overlays::{render_add_to_playlist_overlay, render_global_search_overlay, render_new_playlist_overlay, render_setup_database_overlay, render_help};
 use player::render_player;
 use queue::render_queue;
 use sidebar::render_sidebar;
@@ -33,8 +31,8 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(c.accent2))
-        .style(Style::default().bg(c.background));
+        .border_style(c.border_style())
+        .style(c.block_style());
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -49,35 +47,32 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
 
     let left = Line::from(vec![
         Span::styled(" ", Style::default()),
-        Span::styled(
-            "lyre",
-            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("lyre", c.highlight_bold_style()),
         Span::styled(" ", Style::default()),
-        Span::styled("v0.1.0", Style::default().fg(c.dim)),
+        Span::styled("v0.1.0", c.dim_style()),
         Span::styled(" ", Style::default()),
-        Span::styled("─", Style::default().fg(c.dim)),
+        Span::styled("─", c.dim_style()),
         Span::styled(" ", Style::default()),
         Span::styled(
             format!("a music player & library manager. press [{}] for help.", help_key),
-            Style::default().fg(c.dim),
+            c.dim_style(),
         ),
     ]);
 
     let right = Line::from(vec![
-        Span::styled("by ", Style::default().fg(c.dim)),
-        Span::styled("@rkliman", Style::default().fg(c.accent)),
+        Span::styled("by ", c.dim_style()),
+        Span::styled("@rkliman", c.accent_style()),
         Span::styled(" ", Style::default()),
     ]);
 
     f.render_widget(
-        Paragraph::new(left).style(Style::default().bg(c.background)),
+        Paragraph::new(left).style(c.block_style()),
         cols[0],
     );
     f.render_widget(
         Paragraph::new(right)
             .alignment(Alignment::Right)
-            .style(Style::default().bg(c.background)),
+            .style(c.block_style()),
         cols[1],
     );
 }
@@ -153,6 +148,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
             music_directory,
             active_field,
         } => render_setup_database_overlay(f, area, app, database_name, music_directory, active_field),
+        Overlay::GlobalSearch => render_global_search_overlay(f, area, app),
         Overlay::None => {}
     }
 }
@@ -160,22 +156,19 @@ pub fn render(f: &mut Frame, app: &mut App) {
 pub(super) fn overlay_block<'a>(title: &'a str, app: &App) -> Block<'a> {
     let c = &app.colors;
     Block::default()
-        .title(Span::styled(
-            title,
-            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
-        ))
+        .title(Span::styled(title, c.highlight_bold_style()))
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(c.accent))
+        .border_type(BorderType::Double)
+        .border_style(c.border_active_style())
         .style(Style::default().bg(c.overlay_bg))
 }
 
 pub(super) fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {
     let c = &app.colors;
     let border_style = if active {
-        Style::default().fg(c.accent)
+        c.border_active_style()
     } else {
-        Style::default().fg(c.dim)
+        c.border_inactive_style()
     };
 
     Block::default()
@@ -192,5 +185,5 @@ pub(super) fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .style(Style::default().bg(c.background))
+        .style(c.block_style())
 }

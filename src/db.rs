@@ -45,6 +45,10 @@ impl Db {
             "ALTER TABLE tracks ADD COLUMN favorite INTEGER DEFAULT 0",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE tracks ADD COLUMN mtime INTEGER DEFAULT 0",
+            [],
+        );
         Ok(Self { conn, music_dir: music_dir.to_string() })
     }
 

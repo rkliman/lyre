@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
@@ -44,16 +44,13 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let is_selected = i == app.sidebar_index;
 
         let style = if item.is_header() {
-            Style::default().fg(c.accent).add_modifier(Modifier::BOLD)
+            c.accent_bold_style()
         } else if is_selected && active {
-            Style::default()
-                .fg(c.highlight)
-                .bg(c.selection_bg)
-                .add_modifier(Modifier::BOLD)
+            c.selected_style()
         } else if is_selected {
-            Style::default().fg(c.accent2).bg(c.selection_bg)
+            c.selected_accent2_style()
         } else {
-            Style::default().fg(c.foreground)
+            c.normal_style()
         };
 
         let label = if item.is_header() {
@@ -162,7 +159,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let item_style = if is_highlighted {
             Style::default().bg(c.selection_bg)
         } else {
-            Style::default().bg(c.background)
+            c.block_style()
         };
 
         f.render_widget(
@@ -204,14 +201,11 @@ fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str
     };
 
     let box_title = if search_active {
-        Span::styled(
-            " search ",
-            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
-        )
+        Span::styled(" search ", c.highlight_bold_style())
     } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), Style::default().fg(c.accent))
+        Span::styled(format!(" search{} ", result_hint), c.accent_style())
     } else {
-        Span::styled(" search ", Style::default().fg(c.dim))
+        Span::styled(" search ", c.dim_style())
     };
 
     let search_block = Block::default()
@@ -228,22 +222,19 @@ fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str
         Line::from(vec![
             Span::styled(
                 query.to_string(),
-                Style::default()
-                    .fg(c.highlight)
-                    .bg(box_bg)
-                    .add_modifier(Modifier::BOLD),
+                c.highlight_bold_style().bg(box_bg),
             ),
-            Span::styled("█", Style::default().fg(c.accent).bg(box_bg)),
+            Span::styled("█", c.accent_style().bg(box_bg)),
         ])
     } else if has_query {
         Line::from(Span::styled(
             query.to_string(),
-            Style::default().fg(c.accent2).bg(box_bg),
+            c.border_style().bg(box_bg),
         ))
     } else {
         Line::from(Span::styled(
             "press / to search…",
-            Style::default().fg(c.dim).bg(box_bg),
+            c.dim_style().bg(box_bg),
         ))
     };
 

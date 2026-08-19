@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::types::{Panel, PlayerState, TrackContext};
+use crate::types::{Panel, PlayerState};
 use crate::util::FAVORITE_ICON;
 
 use super::panel_block;
@@ -17,48 +17,66 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let active = app.active_panel == Panel::TrackList;
 
     use crate::keybindings::Action;
-    let title_str = match &app.track_context {
-        TrackContext::Playlist(name) => {
-            let move_up_key = app.keybindings.keys_for_action(Action::MoveTrackUp);
-            let move_down_key = app.keybindings.keys_for_action(Action::MoveTrackDown);
-            let remove_key = app.keybindings.keys_for_action(Action::RemoveFromPlaylist);
-            let add_key = app.keybindings.keys_for_action(Action::AddToPlaylist);
-            format!(
-                " ♪ {} [playlist]  {}/{}:move  {}:remove  {}:add-to ",
-                name, move_up_key, move_down_key, remove_key, add_key
-            )
+    let jump_key = app.keybindings.keys_for_action(Action::JumpToTracks);
+    let title_str = format!(
+        " Tracks [{}] — {} {} ",
+        jump_key,
+        app.sort_field.label(),
+        if app.sort_order == crate::types::SortOrder::Asc {
+            "↑"
+        } else {
+            "↓"
         }
-        TrackContext::Library => {
-            let jump_key = app.keybindings.keys_for_action(Action::JumpToTracks);
-            format!(
-                " Tracks [{}] — {} {} ",
-                jump_key,
-                app.sort_field.label(),
-                if app.sort_order == crate::types::SortOrder::Asc {
-                    "↑"
-                } else {
-                    "↓"
-                }
-            )
-        }
-    };
+    );
     let block = panel_block(&title_str, active, app).title_alignment(Alignment::Left);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    let heading = app.track_heading.clone();
+
     let inner_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(inner);
 
-    let search_area = inner_rows[0];
-    let header_area = inner_rows[1];
-    let list_area = inner_rows[2];
+    let title_area = inner_rows[0];
+    let search_area = inner_rows[1];
+    let header_area = inner_rows[2];
+    let list_area = inner_rows[3];
+
+    let total_dur: i64 = app.filtered_tracks.iter().map(|t| t.duration).sum();
+    let track_count = app.filtered_tracks.len();
+    let summary = format!(
+        "({} track{}, {})",
+        track_count,
+        if track_count == 1 { "" } else { "s" },
+        crate::types::format_duration(total_dur),
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(" {}", heading),
+                app.colors.highlight_bold_style(),
+            ),
+            Span::styled(
+                format!("  {}", summary),
+                app.colors.dim_style(),
+            ),
+        ])),
+        Rect {
+            x: title_area.x,
+            y: title_area.y,
+            width: title_area.width,
+            height: 1,
+        },
+    );
 
     let search_active = app.search_mode;
     let has_query = !app.search_query.is_empty();
@@ -83,14 +101,11 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let box_title = if search_active {
-        Span::styled(
-            " search ",
-            Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
-        )
+        Span::styled(" search ", c.highlight_bold_style())
     } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), Style::default().fg(c.accent))
+        Span::styled(format!(" search{} ", result_hint), c.accent_style())
     } else {
-        Span::styled(" search ", Style::default().fg(c.dim))
+        Span::styled(" search ", c.dim_style())
     };
 
     let search_block = Block::default()
@@ -107,22 +122,19 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(vec![
             Span::styled(
                 app.search_query.clone(),
-                Style::default()
-                    .fg(c.highlight)
-                    .bg(box_bg)
-                    .add_modifier(Modifier::BOLD),
+                c.highlight_bold_style().bg(box_bg),
             ),
-            Span::styled("█", Style::default().fg(c.accent).bg(box_bg)),
+            Span::styled("█", c.accent_style().bg(box_bg)),
         ])
     } else if has_query {
         Line::from(Span::styled(
             app.search_query.clone(),
-            Style::default().fg(c.accent2).bg(box_bg),
+            c.border_style().bg(box_bg),
         ))
     } else {
         Line::from(Span::styled(
             "press / to search…",
-            Style::default().fg(c.dim).bg(box_bg),
+            c.dim_style().bg(box_bg),
         ))
     };
 
@@ -149,10 +161,7 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         bw = album_w,
     );
     let header_widget = Paragraph::new(header).style(
-        Style::default()
-            .fg(c.accent)
-            .add_modifier(Modifier::BOLD)
-            .bg(c.header_bg),
+        c.accent_bold_style().bg(c.header_bg),
     );
     f.render_widget(header_widget, header_area);
 
@@ -297,7 +306,7 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
 
     while y < bottom {
         f.render_widget(
-            Paragraph::new("").style(Style::default().bg(c.background)),
+            Paragraph::new("").style(c.block_style()),
             Rect {
                 x: list_area.x,
                 y,
@@ -308,19 +317,4 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         y += 1;
     }
 
-    f.render_widget(
-        Paragraph::new(format!(
-            " {}/{} ",
-            app.track_list_index + 1,
-            app.filtered_tracks.len()
-        ))
-        .style(Style::default().fg(c.dim))
-        .alignment(Alignment::Right),
-        Rect {
-            x: inner.x,
-            y: inner.y,
-            width: inner.width,
-            height: 1,
-        },
-    );
 }

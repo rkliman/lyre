@@ -67,9 +67,7 @@ impl Playlist {
     }
 
     pub fn add_entry(&mut self, track_path: &str) {
-        if !self.entries.iter().any(|e| e == track_path) {
-            self.entries.push(track_path.to_string());
-        }
+        self.entries.push(track_path.to_string());
     }
 
     pub fn remove_entry(&mut self, index: usize) {

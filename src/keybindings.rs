@@ -7,7 +7,7 @@ pub enum Action {
     JumpToSidebar, JumpToQueue, JumpToTracks,
     ToggleArtWindow, ToggleLyrics,
 
-    PlayPause, Next, Previous, Stop,
+    PlayPause, Next, Previous,
     VolumeUp, VolumeDown, SeekForward, SeekBackward,
     ToggleShuffle, ToggleLoop,
 
@@ -30,6 +30,7 @@ pub enum Action {
 
     ToggleInfo, InfoClose,
     ToggleFavorite,
+    GlobalSearch,
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +103,7 @@ impl Keybindings {
             kb!(vec![Char(' ')], Action::PlayPause, Global),
             kb!(vec![Char('n')], Action::Next, Global),
             kb!(vec![Char('p')], Action::Previous, Global),
-            kb!(vec![Char('s')], Action::Stop, Global),
+            kb!(vec![Char('s')], Action::GlobalSearch, Global),
             kb!(vec![Char('+'), Char('=')], Action::VolumeUp, Global),
             kb!(vec![Char('-'), Char('_')], Action::VolumeDown, Global),
             kb!(vec![Char('.')], Action::SeekForward, Global),
@@ -114,7 +115,7 @@ impl Keybindings {
             kb!(vec![Char('a')], Action::AddToQueue, Panel(Panel::TrackList)),
             kb!(vec![Char('A')], Action::AddAllToQueue, Panel(Panel::TrackList)),
             kb!(vec![Char('x'), Delete], Action::RemoveFromQueue, Panel(Panel::Queue)),
-            kb!(vec![Char('c')], Action::ClearQueue, Panel(Panel::Queue)),
+            kb!(vec![Char('c')], Action::ClearQueue, Global),
 
             // Library
             kb!(vec![Char('S')], Action::CycleSort, Global),
@@ -266,7 +267,6 @@ impl Keybindings {
                 (k(PlayPause), "Play selected / toggle pause"),
                 (k(Next), "Next track in queue"),
                 (k(Previous), "Previous track in queue"),
-                (k(Stop), "Stop"),
                 (ks(&[VolumeUp, VolumeDown]), "Volume up / down"),
                 (ks(&[SeekForward, SeekBackward]), "Seek forward / backward (5 seconds)"),
                 (k(ToggleShuffle), "Toggle shuffle"),
@@ -280,6 +280,7 @@ impl Keybindings {
                 ("Shift+↑ / Shift+↓".to_string(), "Multi-select tracks (in track list)"),
             ]),
             ("Library", vec![
+                (k(GlobalSearch), "Open global search"),
                 (k(CycleSort), "Cycle sort field (title→artist→album→year→genre→dur)"),
                 (k(ToggleSortOrder), "Toggle sort order (asc / desc)"),
                 (k(EnterSearch), "Activate search bar (always visible above track list)"),

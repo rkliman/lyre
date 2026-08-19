@@ -276,6 +276,16 @@ pub(super) fn update_playlist_line(
 
 // ── Lofty helpers ─────────────────────────────────────────────────────────────
 
+pub(super) fn get_file_mtime(entry: &walkdir::DirEntry) -> i64 {
+    entry
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 pub(super) fn tag_str(tag: Option<&lofty::tag::Tag>, key: &ItemKey) -> String {
     tag.and_then(|t| t.get_string(key))
         .unwrap_or("")

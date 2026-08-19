@@ -29,7 +29,7 @@ pub fn dispatch(command: Commands, config: &Config) {
     let db_path = expand_tilde(&config.files.database_name);
 
     match command {
-        Commands::Index { dry_run, source } => {
+        Commands::Index { dry_run, all, source } => {
             let (eff_music_dir, eff_db_path) = if let Some(src) = source {
                 let src = expand_tilde(&src);
                 let db_filename = std::path::Path::new(&db_path)
@@ -54,6 +54,7 @@ pub fn dispatch(command: Commands, config: &Config) {
                 config.files.ignore.as_ref(),
                 config.replace.as_ref(),
                 dry_run,
+                all,
             );
             index_playlists(&eff_music_dir, &eff_db_path);
         }

@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Modifier, Style},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
     Frame,
@@ -35,7 +35,7 @@ pub(super) fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
             let visible_height = inner.height as usize;
             let all_lines: Vec<Line> = text
                 .lines()
-                .map(|line| Line::from(Span::styled(line, Style::default().fg(c.foreground))))
+                .map(|line| Line::from(Span::styled(line, c.normal_style())))
                 .collect();
 
             let paragraph = Paragraph::new(all_lines)
@@ -98,7 +98,7 @@ pub(super) fn render_lyrics(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_lyrics_placeholder(f: &mut Frame, app: &App, inner: Rect) {
     let dim = app.colors.dim_style();
-    let fg = Style::default().fg(app.colors.foreground);
+    let fg = app.colors.normal_style();
     let accent = app.colors.selected_style().add_modifier(Modifier::BOLD);
 
     // No track playing → simple message

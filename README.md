@@ -21,4 +21,13 @@ A powerful and easy to use tui-based music player and library manager
 - [ ] Integrate apollo-music indexing on startup (make apollo-music a prepreq. does require apollo-music to be semi-finalized)
 - [ ] Add better README.md documentation
 - [ ] Far future: integrate with streamrip/other music acquisition to make it all-in-one
-- [ ] Far future: add youtube integration
+- [ ] Add replaygain / volume normalization
+- [ ] Add configurable keybindings
+- [ ] Add mouse support
+- [ ] Add queue reordering
+- [ ] Add Equalizer (maybe)
+- [ ] Add smart playlists (plugin maybe?)
+- [ ] Album art thumbnails (requires 2 line track items)
+- [ ] Add theming presets
+- [ ] Add MPRIS control handling
+- [ ] Add persistent play counts

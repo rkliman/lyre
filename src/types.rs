@@ -1,3 +1,14 @@
+use std::sync::Arc;
+
+#[derive(Debug, Clone)]
+pub enum GlobalSearchResult {
+    Track(Arc<Track>),
+    Album(String),
+    Artist(String),
+    Playlist(String),
+    Genre(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Track {
     pub path: String,
@@ -131,13 +142,29 @@ impl SidebarItem {
             SidebarItem::Favorites => "♫ Favorites".to_string(),
             SidebarItem::RecentlyAdded => "♫ Recently Added".to_string(),
             SidebarItem::Artists => "  Artists".to_string(),
-            SidebarItem::Artist(a) => format!("    {}", a),
+            SidebarItem::Artist(a) => format!(" {}", a),
             SidebarItem::Albums => "  Albums".to_string(),
-            SidebarItem::Album(a) => format!("    {}", a),
+            SidebarItem::Album(a) => format!(" {}", a),
             SidebarItem::Genres => "  Genres".to_string(),
-            SidebarItem::Genre(g) => format!("    {}", g),
+            SidebarItem::Genre(g) => format!(" {}", g),
             SidebarItem::Playlists => "  Playlists".to_string(),
-            SidebarItem::Playlist(p) => format!("    {}", p),
+            SidebarItem::Playlist(p) => format!(" {}", p),
+        }
+    }
+
+    pub fn title(&self) -> String {
+        match self {
+            SidebarItem::AllTracks => "All Tracks".to_string(),
+            SidebarItem::RecentlyAdded => "Recently Added".to_string(),
+            SidebarItem::Favorites => "Favorites".to_string(),
+            SidebarItem::Artists => "Artists".to_string(),
+            SidebarItem::Artist(a) => a.clone(),
+            SidebarItem::Albums => "Albums".to_string(),
+            SidebarItem::Album(a) => a.clone(),
+            SidebarItem::Genres => "Genres".to_string(),
+            SidebarItem::Genre(g) => g.clone(),
+            SidebarItem::Playlists => "Playlists".to_string(),
+            SidebarItem::Playlist(p) => p.clone(),
         }
     }
 
@@ -414,6 +441,8 @@ pub enum Overlay {
         music_directory: String,
         active_field: SetupField,
     },
+    /// Global search overlay for finding songs, albums, artists, playlists, genres.
+    GlobalSearch,
 }
 
 #[derive(Debug, Clone, PartialEq)]

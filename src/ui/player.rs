@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Gauge, Paragraph},
     Frame,
@@ -16,12 +16,12 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
             format!(" {} ", "🎶 Now Playing"),
-            Style::default().fg(c.dim),
+            c.dim_style(),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(c.accent2))
-        .style(Style::default().bg(c.background));
+        .border_style(c.border_style())
+        .style(c.block_style());
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -60,7 +60,7 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
                 height: 1,
             };
             f.render_widget(
-                Paragraph::new(row.clone()).style(Style::default().bg(c.background)),
+                Paragraph::new(row.clone()).style(c.block_style()),
                 row_rect,
             );
         }
@@ -86,13 +86,13 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(format!("{} ", state_icon), Style::default().fg(c.playing)),
             Span::styled(
                 truncate_field(track.display_title(), cols[1].width as usize - 4),
-                Style::default().fg(c.highlight).add_modifier(Modifier::BOLD),
+                c.highlight_bold_style(),
             ),
         ]);
 
         let artist_line = Line::from(Span::styled(
             format!("  {} — {}", track.display_artist(), track.display_album()),
-            Style::default().fg(c.accent),
+            c.accent_style(),
         ));
 
         let meta_line = Line::from(Span::styled(
@@ -109,24 +109,24 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
                     "· Unknown Genre".to_string()
                 }
             ),
-            Style::default().fg(c.dim),
+            c.dim_style(),
         ));
 
         f.render_widget(Paragraph::new(title_line), left_rows[0]);
         f.render_widget(Paragraph::new(artist_line), left_rows[1]);
         f.render_widget(Paragraph::new(meta_line), left_rows[2]);
     } else {
-        let idle = Paragraph::new("■ lyre — no track playing").style(Style::default().fg(c.dim));
+        let idle = Paragraph::new("■ lyre — no track playing").style(c.dim_style());
         f.render_widget(idle, left_rows[0]);
 
         use crate::keybindings::Action;
         let play_key = app.keybindings.keys_for_action(Action::PlayPause);
         let help_key = app.keybindings.keys_for_action(Action::ToggleHelp);
         let hint1 = Paragraph::new(format!("  Press [{}] to play", play_key))
-            .style(Style::default().fg(c.dim));
+            .style(c.dim_style());
         f.render_widget(hint1, left_rows[1]);
         let hint2 = Paragraph::new(format!("  Press [{}] for help", help_key))
-            .style(Style::default().fg(c.dim));
+            .style(c.dim_style());
         f.render_widget(hint2, left_rows[2]);
     }
 
@@ -158,7 +158,7 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
             app.keybindings.keys_for_action(Action::ToggleShuffle),
             app.keybindings.keys_for_action(Action::ToggleLoop),
         ),
-        Style::default().fg(c.dim),
+        c.dim_style(),
     );
     f.render_widget(
         Paragraph::new(Line::from(status)).alignment(Alignment::Center),
@@ -166,15 +166,15 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
     );
 
     let gauge = Gauge::default()
-        .gauge_style(Style::default().fg(c.accent).bg(c.gauge_bg))
+        .gauge_style(c.accent_style().bg(c.gauge_bg))
         .ratio(progress)
         .label("");
     f.render_widget(gauge, right_rows[0]);
 
     let time_line = Line::from(vec![
-        Span::styled(format_duration(elapsed), Style::default().fg(c.foreground)),
-        Span::styled(" / ", Style::default().fg(c.dim)),
-        Span::styled(format_duration(total), Style::default().fg(c.dim)),
+        Span::styled(format_duration(elapsed), c.normal_style()),
+        Span::styled(" / ", c.dim_style()),
+        Span::styled(format_duration(total), c.dim_style()),
     ]);
     f.render_widget(
         Paragraph::new(time_line).alignment(Alignment::Center),
@@ -185,18 +185,18 @@ pub(super) fn render_player(f: &mut Frame, app: &App, area: Rect) {
     let shuffle_color = if app.player.shuffle {
         Style::default().fg(c.playing)
     } else {
-        Style::default().fg(c.dim)
+        c.dim_style()
     };
     let loop_indicator = format!("{}", app.player.loop_mode.icon());
     let loop_color = if app.player.loop_mode == LoopMode::Off {
-        Style::default().fg(c.dim)
+        c.dim_style()
     } else {
         Style::default().fg(c.playing)
     };
     let controls_line = Line::from(vec![
         Span::styled(
             format!("vol {:.0}%  ", app.player.volume * 100.0),
-            Style::default().fg(c.dim),
+            c.dim_style(),
         ),
         Span::styled(shuffle_indicator, shuffle_color),
         Span::styled("  ", Style::default()),

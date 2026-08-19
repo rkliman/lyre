@@ -9,13 +9,9 @@ use crate::app::App;
 use crate::types::{EditField, Panel};
 
 pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
-    // Copy scheme colors up front so we can hold `&mut app` freely later.
-    let highlight = app.colors.highlight;
-    let accent = app.colors.accent;
-    let foreground = app.colors.foreground;
-    let dim = app.colors.dim;
-    let overlay_bg = app.colors.overlay_bg;
-    let background = app.colors.background;
+    // Clone scheme up front so we can hold `&mut app` freely later.
+    let c = app.colors.clone();
+    let overlay_bg = c.overlay_bg;
 
     // Popup height stays constant across simple/detailed so the album art
     // doesn't stretch — detailed view scrolls to reveal extra fields.
@@ -35,11 +31,11 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
             title,
-            Style::default().fg(highlight).add_modifier(Modifier::BOLD),
+            c.highlight_bold_style(),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
-        .border_style(Style::default().fg(accent))
+        .border_style(c.border_active_style())
         .style(Style::default().bg(overlay_bg));
 
     let inner = block.inner(popup);
@@ -53,7 +49,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     };
     if !has_track {
         let msg = Paragraph::new("No tracks in the current view.\n\nPress 'i' to close this window.")
-            .style(Style::default().fg(dim))
+            .style(c.dim_style())
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
         f.render_widget(msg, inner);
@@ -112,7 +108,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
         }
     } else {
         let placeholder = Paragraph::new("No album art available")
-            .style(Style::default().fg(dim))
+            .style(c.dim_style())
             .alignment(Alignment::Center);
         f.render_widget(placeholder, art_area);
     }
@@ -122,12 +118,12 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     let visible: &[EditField] = app.info_visible_fields();
 
     // Build all field lines with an index of where the active field sits.
-    let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
-    let value_style = Style::default().fg(foreground);
-    let title_style = Style::default().fg(highlight);
+    let label_style = c.accent_bold_style();
+    let value_style = c.normal_style();
+    let title_style = c.highlight_style();
     let active_style = Style::default()
-        .fg(background)
-        .bg(highlight)
+        .fg(c.background)
+        .bg(c.highlight)
         .add_modifier(Modifier::BOLD);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -168,7 +164,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     lines.push(Line::from(Span::styled("File Path", label_style)));
     lines.push(Line::from(Span::styled(
         track_path.clone(),
-        Style::default().fg(dim),
+        c.dim_style(),
     )));
     lines.push(Line::from(Span::styled("Duration", label_style)));
     lines.push(Line::from(Span::styled(duration_str, value_style)));
@@ -216,7 +212,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let footer = Paragraph::new(Line::from(Span::styled(
         help,
-        Style::default().fg(dim),
+        c.dim_style(),
     )))
     .style(Style::default().bg(overlay_bg));
     f.render_widget(footer, help_area);

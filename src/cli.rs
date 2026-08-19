@@ -17,6 +17,9 @@ pub enum Commands {
         /// Show what would be moved but don't actually move files
         #[arg(long, action = ArgAction::SetTrue)]
         dry_run: bool,
+        /// Re-read metadata for all files, ignoring modification time cache
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
         /// Music directory to index (overrides config); the db is written there
         #[arg()]
         source: Option<String>,

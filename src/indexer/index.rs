@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::util::{
     collect_existing_paths_column, extract_song_name_from_filename,
-    generate_path_from_pattern, tag_str, update_playlist_line, TickingBar,
+    get_file_mtime, generate_path_from_pattern, tag_str, update_playlist_line, TickingBar,
 };
 
 pub(super) fn index_library(
@@ -18,6 +18,7 @@ pub(super) fn index_library(
     ignore: Option<&Vec<String>>,
     replace: Option<&std::collections::HashMap<String, String>>,
     dry_run: bool,
+    force_all: bool,
 ) {
     let music_dir = expand_tilde(music_dir);
     let db_path = expand_tilde(db_path);
@@ -32,10 +33,19 @@ pub(super) fn index_library(
     }
     let glob_set = glob_builder.build().unwrap();
 
-    let entries: Vec<_> = walkdir::WalkDir::new(&music_dir)
+    const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a"];
+
+    let all_entries: Vec<_> = walkdir::WalkDir::new(&music_dir)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| AUDIO_EXTENSIONS.contains(&ext))
+                .unwrap_or(false)
+        })
         .filter(|e| {
             let rel = e.path().strip_prefix(&music_dir).unwrap_or(e.path());
             !glob_set.is_match(rel)
@@ -55,7 +65,8 @@ pub(super) fn index_library(
             year INTEGER,
             genre TEXT,
             added_at INTEGER DEFAULT (strftime('%s', 'now')),
-            favorite INTEGER DEFAULT 0
+            favorite INTEGER DEFAULT 0,
+            mtime INTEGER DEFAULT 0
         )",
         [],
     )
@@ -68,6 +79,48 @@ pub(super) fn index_library(
         "ALTER TABLE tracks ADD COLUMN favorite INTEGER DEFAULT 0",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE tracks ADD COLUMN mtime INTEGER DEFAULT 0",
+        [],
+    );
+
+    let existing_mtimes: std::collections::HashMap<String, i64> = {
+        let mut stmt = conn.prepare("SELECT path, mtime FROM tracks").unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let mut map = std::collections::HashMap::new();
+        while let Some(row) = rows.next().unwrap() {
+            let path: String = row.get(0).unwrap();
+            let mtime: i64 = row.get(1).unwrap_or(0);
+            map.insert(path, mtime);
+        }
+        map
+    };
+
+    let total_audio_files = all_entries.len();
+    let entries: Vec<_> = if force_all {
+        all_entries
+    } else {
+        all_entries
+            .into_iter()
+            .filter(|entry| {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&music_dir)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| entry.path().to_string_lossy().into_owned());
+                let mtime = get_file_mtime(entry);
+                match existing_mtimes.get(&rel_path) {
+                    Some(&stored) => mtime != stored,
+                    None => true,
+                }
+            })
+            .collect()
+    };
+
+    let skipped = total_audio_files - entries.len();
+    if skipped > 0 {
+        println!("Skipping {} unchanged files", skipped);
+    }
 
     let tx = conn.transaction().expect("Failed to start transaction");
     let now = std::time::SystemTime::now()
@@ -75,7 +128,7 @@ pub(super) fn index_library(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    println!("Indexing music files in: {}", music_dir);
+    println!("Indexing {} music files in: {}", entries.len(), music_dir);
     let bar = TickingBar::new(entries.len() as u64);
     let pb = Arc::clone(&bar.pb);
 
@@ -83,6 +136,7 @@ pub(super) fn index_library(
         .par_iter()
         .filter_map(|entry| {
             let path = entry.path();
+            let mtime = get_file_mtime(entry);
             let (artist, album, albumartist, title, year, genre) =
                 match lofty::read_from_path(path) {
                     Ok(tagged_file) => {
@@ -104,49 +158,44 @@ pub(super) fn index_library(
                     }
                 };
 
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if matches!(ext, "mp3" | "flac" | "wav" | "m4a") {
-                    let mut path_str = path.to_string_lossy().to_string();
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let mut path_str = path.to_string_lossy().to_string();
 
-                    if let Some(pattern) = file_pattern {
-                        let new_rel = generate_path_from_pattern(
-                            pattern,
-                            &artist,
-                            &albumartist,
-                            &album,
-                            &title,
-                            ext,
-                            replace,
+            if let Some(pattern) = file_pattern {
+                let new_rel = generate_path_from_pattern(
+                    pattern,
+                    &artist,
+                    &albumartist,
+                    &album,
+                    &title,
+                    ext,
+                    replace,
+                );
+                let new_abs = Path::new(&music_dir).join(&new_rel);
+                if new_abs != path {
+                    if dry_run {
+                        println!(
+                            "[dry-run] Would move:\n  from: {}\n  to:   {}",
+                            path.display(),
+                            new_abs.display()
                         );
-                        let new_abs = Path::new(&music_dir).join(&new_rel);
-                        if new_abs != path {
-                            if dry_run {
-                                println!(
-                                    "[dry-run] Would move:\n  from: {}\n  to:   {}",
-                                    path.display(),
-                                    new_abs.display()
-                                );
-                            } else {
-                                if let Some(parent) = new_abs.parent() {
-                                    std::fs::create_dir_all(parent).ok();
-                                }
-                                std::fs::rename(path, &new_abs).ok();
-                            }
-                            path_str = new_abs.to_string_lossy().to_string();
+                    } else {
+                        if let Some(parent) = new_abs.parent() {
+                            std::fs::create_dir_all(parent).ok();
                         }
+                        std::fs::rename(path, &new_abs).ok();
                     }
-
-                    let rel_path = Path::new(&path_str)
-                        .strip_prefix(&music_dir)
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or(path_str);
-
-                    pb.inc(1);
-                    return Some((rel_path, artist, albumartist, album, title, year, genre));
+                    path_str = new_abs.to_string_lossy().to_string();
                 }
             }
+
+            let rel_path = Path::new(&path_str)
+                .strip_prefix(&music_dir)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or(path_str);
+
             pb.inc(1);
-            None
+            Some((rel_path, artist, albumartist, album, title, year, genre, mtime))
         })
         .collect();
 
@@ -156,11 +205,19 @@ pub(super) fn index_library(
     println!("Inserting {} tracks into database…", tracks.len());
     let insert_bar = TickingBar::new(tracks.len() as u64);
 
-    for (path_str, artist, albumartist, album, title, year, genre) in tracks {
+    for (path_str, artist, albumartist, album, title, year, genre, mtime) in tracks {
         let result = tx.execute(
-            "INSERT OR IGNORE INTO tracks (path, artist, albumartist, album, title, duration, year, genre, added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params![path_str, artist, albumartist, album, title, 0i64, year, genre, now],
+            "INSERT INTO tracks (path, artist, albumartist, album, title, duration, year, genre, added_at, mtime)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(path) DO UPDATE SET
+                 artist = excluded.artist,
+                 albumartist = excluded.albumartist,
+                 album = excluded.album,
+                 title = excluded.title,
+                 year = excluded.year,
+                 genre = excluded.genre,
+                 mtime = excluded.mtime",
+            rusqlite::params![path_str, artist, albumartist, album, title, 0i64, year, genre, now, mtime],
         );
         if let Ok(1) = result {
             insert_bar.pb.set_message(format!("Added: {}", path_str));

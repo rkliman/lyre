@@ -1,7 +1,8 @@
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{OutputStream, Sink, Source};
 use std::fs::File;
 use std::path::Path;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
@@ -181,33 +182,86 @@ impl Source for SymphoniaSource {
     }
 }
 
+struct GaplessSource {
+    inner: SymphoniaSource,
+    finished_tx: Option<mpsc::Sender<Instant>>,
+}
+
+impl GaplessSource {
+    fn new(inner: SymphoniaSource, finished_tx: mpsc::Sender<Instant>) -> Self {
+        Self {
+            inner,
+            finished_tx: Some(finished_tx),
+        }
+    }
+}
+
+impl Iterator for GaplessSource {
+    type Item = i16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            Some(s) => Some(s),
+            None => {
+                if let Some(tx) = self.finished_tx.take() {
+                    let _ = tx.send(Instant::now());
+                }
+                None
+            }
+        }
+    }
+}
+
+impl Source for GaplessSource {
+    fn current_frame_len(&self) -> Option<usize> {
+        self.inner.current_frame_len()
+    }
+
+    fn channels(&self) -> u16 {
+        self.inner.channels()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.inner.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+}
+
 pub struct Player {
     _stream: OutputStream,
-    handle: OutputStreamHandle,
-    sink: Option<Sink>,
+    sink: Sink,
     decoder_state: Option<Arc<Mutex<DecoderState>>>,
     pub state: PlayerState,
     pub current_track: Option<Arc<Track>>,
     pub queue: Vec<Arc<Track>>,
     pub queue_index: usize,
     pub volume: f32,
-    // Time tracking for accurate position after seeks
     playback_start: Option<Instant>,
     paused_elapsed: Duration,
     seek_offset: Duration,
-    // Shuffle and loop
     pub shuffle: bool,
     pub loop_mode: LoopMode,
     shuffle_order: Vec<usize>,
+    // Gapless playback
+    track_finished_tx: mpsc::Sender<Instant>,
+    track_finished_rx: mpsc::Receiver<Instant>,
+    next_track_buffered: bool,
+    prebuffered_decoder_state: Option<Arc<Mutex<DecoderState>>>,
+    prebuffered_track: Option<Arc<Track>>,
+    prebuffered_queue_index: Option<usize>,
 }
 
 impl Player {
     pub fn new() -> Result<Self> {
         let (_stream, handle) = OutputStream::try_default()?;
+        let sink = Sink::try_new(&handle)?;
+        let (track_finished_tx, track_finished_rx) = mpsc::channel();
         Ok(Self {
             _stream,
-            handle,
-            sink: None,
+            sink,
             decoder_state: None,
             state: PlayerState::Stopped,
             current_track: None,
@@ -220,20 +274,24 @@ impl Player {
             shuffle: false,
             loop_mode: LoopMode::Off,
             shuffle_order: Vec::new(),
+            track_finished_tx,
+            track_finished_rx,
+            next_track_buffered: false,
+            prebuffered_decoder_state: None,
+            prebuffered_track: None,
+            prebuffered_queue_index: None,
         })
     }
 
     pub fn play_track(&mut self, mut track: Arc<Track>) -> Result<()> {
-        // Stop and drop existing sink before clearing decoder state
-        // This ensures the sink's playback thread has stopped before we drop the decoder
-        if let Some(sink) = self.sink.take() {
-            sink.stop(); // Blocks until playback thread stops
-            drop(sink); // Explicit drop for clarity
-        }
-        // Now safe to drop decoder state since no threads are using it
+        self.sink.clear();
+        while self.track_finished_rx.try_recv().is_ok() {}
         self.decoder_state = None;
+        self.next_track_buffered = false;
+        self.prebuffered_decoder_state = None;
+        self.prebuffered_track = None;
+        self.prebuffered_queue_index = None;
 
-        // If duration is missing from the database, extract it from the file
         if track.duration <= 0 {
             if let Some(duration) = crate::art::extract_duration(&track.path) {
                 Arc::make_mut(&mut track).duration = duration;
@@ -247,13 +305,13 @@ impl Player {
 
         let decoder_state = Arc::new(Mutex::new(DecoderState::new(path)?));
         let source = SymphoniaSource::new(decoder_state.clone());
+        let gapless = GaplessSource::new(source, self.track_finished_tx.clone());
 
-        let sink = Sink::try_new(&self.handle)?;
-        sink.set_volume(self.volume);
-        sink.append(source);
+        self.sink.append(gapless);
+        self.sink.set_volume(self.volume);
+        self.sink.play();
 
         self.current_track = Some(track);
-        self.sink = Some(sink);
         self.decoder_state = Some(decoder_state);
         self.state = PlayerState::Playing;
         self.playback_start = Some(Instant::now());
@@ -264,30 +322,27 @@ impl Player {
     }
 
     pub fn toggle_pause(&mut self) {
-        if let Some(sink) = &self.sink {
-            if self.state == PlayerState::Playing {
-                sink.pause();
-                self.state = PlayerState::Paused;
-                // Record how long we've been playing so far
-                if let Some(start) = self.playback_start.take() {
-                    self.paused_elapsed += start.elapsed();
-                }
-            } else if self.state == PlayerState::Paused {
-                sink.play();
-                self.state = PlayerState::Playing;
-                self.playback_start = Some(Instant::now());
+        if self.state == PlayerState::Playing {
+            self.sink.pause();
+            self.state = PlayerState::Paused;
+            if let Some(start) = self.playback_start.take() {
+                self.paused_elapsed += start.elapsed();
             }
+        } else if self.state == PlayerState::Paused {
+            self.sink.play();
+            self.state = PlayerState::Playing;
+            self.playback_start = Some(Instant::now());
         }
     }
 
     pub fn stop(&mut self) {
-        // Stop and drop sink before clearing decoder state
-        if let Some(sink) = self.sink.take() {
-            sink.stop(); // Blocks until playback thread stops
-            drop(sink); // Explicit drop for clarity
-        }
-        // Now safe to drop decoder state since no threads are using it
+        self.sink.clear();
+        while self.track_finished_rx.try_recv().is_ok() {}
         self.decoder_state = None;
+        self.next_track_buffered = false;
+        self.prebuffered_decoder_state = None;
+        self.prebuffered_track = None;
+        self.prebuffered_queue_index = None;
         self.state = PlayerState::Stopped;
         self.current_track = None;
         self.playback_start = None;
@@ -328,132 +383,109 @@ impl Player {
         self.seek(new_pos)
     }
 
-    pub fn next(&mut self) -> Result<()> {
+    fn compute_next_index(&self) -> Option<usize> {
         if self.queue.is_empty() {
-            self.stop();
-            return Ok(());
+            return None;
         }
-
-        // Loop One: replay current track
         if self.loop_mode == LoopMode::One {
-            let track = self.get_current_queue_track().clone();
-            return self.play_track(track);
+            return Some(self.queue_index);
         }
-
         if self.shuffle && !self.shuffle_order.is_empty() {
-            // Shuffle mode: advance in shuffle order
             let shuffle_pos = self
                 .shuffle_order
                 .iter()
                 .position(|&i| i == self.queue_index)
                 .unwrap_or(0);
             let next_shuffle_pos = shuffle_pos + 1;
-
             if next_shuffle_pos >= self.shuffle_order.len() {
-                // End of shuffle order
                 if self.loop_mode == LoopMode::All {
-                    // Loop All: wrap to beginning of shuffle order
-                    self.queue_index = self.shuffle_order[0];
+                    Some(self.shuffle_order[0])
                 } else {
-                    // Loop Off: stop at end
-                    self.stop();
-                    return Ok(());
+                    None
                 }
             } else {
-                self.queue_index = self.shuffle_order[next_shuffle_pos];
+                Some(self.shuffle_order[next_shuffle_pos])
             }
         } else {
-            // Normal mode: sequential playback
             let next_index = self.queue_index + 1;
-
             if next_index >= self.queue.len() {
-                // End of queue
                 if self.loop_mode == LoopMode::All {
-                    // Loop All: wrap to beginning
-                    self.queue_index = 0;
+                    Some(0)
                 } else {
-                    // Loop Off: stop at end
-                    self.stop();
-                    return Ok(());
+                    None
                 }
             } else {
-                self.queue_index = next_index;
+                Some(next_index)
             }
         }
-
-        let track = self.get_current_queue_track().clone();
-        self.play_track(track)
     }
 
-    pub fn prev(&mut self) -> Result<()> {
+    pub fn next(&mut self) -> Result<()> {
+        match self.compute_next_index() {
+            Some(idx) => {
+                self.queue_index = idx;
+                let track = self.queue[self.queue_index].clone();
+                self.play_track(track)
+            }
+            None => {
+                self.stop();
+                Ok(())
+            }
+        }
+    }
+
+    fn compute_prev_index(&self) -> Option<usize> {
         if self.queue.is_empty() {
-            return Ok(());
+            return None;
         }
-
-        // Loop One: replay current track
         if self.loop_mode == LoopMode::One {
-            let track = self.get_current_queue_track().clone();
-            return self.play_track(track);
+            return Some(self.queue_index);
         }
-
         if self.shuffle && !self.shuffle_order.is_empty() {
-            // Shuffle mode: go back in shuffle order
             let shuffle_pos = self
                 .shuffle_order
                 .iter()
                 .position(|&i| i == self.queue_index)
                 .unwrap_or(0);
-
             if shuffle_pos == 0 {
-                // At beginning of shuffle order
                 if self.loop_mode == LoopMode::All {
-                    // Loop All: wrap to end of shuffle order
-                    self.queue_index = self.shuffle_order[self.shuffle_order.len() - 1];
+                    Some(self.shuffle_order[self.shuffle_order.len() - 1])
                 } else {
-                    // Loop Off: stay at beginning
-                    let track = self.get_current_queue_track().clone();
-                    return self.play_track(track);
+                    Some(self.queue_index)
                 }
             } else {
-                self.queue_index = self.shuffle_order[shuffle_pos - 1];
+                Some(self.shuffle_order[shuffle_pos - 1])
+            }
+        } else if self.queue_index == 0 {
+            if self.loop_mode == LoopMode::All {
+                Some(self.queue.len() - 1)
+            } else {
+                Some(self.queue_index)
             }
         } else {
-            // Normal mode: sequential playback
-            if self.queue_index == 0 {
-                // At beginning of queue
-                if self.loop_mode == LoopMode::All {
-                    // Loop All: wrap to end
-                    self.queue_index = self.queue.len() - 1;
-                } else {
-                    // Loop Off: stay at beginning
-                    let track = self.get_current_queue_track().clone();
-                    return self.play_track(track);
-                }
-            } else {
-                self.queue_index -= 1;
-            }
+            Some(self.queue_index - 1)
         }
-
-        let track = self.get_current_queue_track().clone();
-        self.play_track(track)
     }
 
-    fn get_current_queue_track(&self) -> &Arc<Track> {
-        &self.queue[self.queue_index]
+    pub fn prev(&mut self) -> Result<()> {
+        match self.compute_prev_index() {
+            Some(idx) => {
+                self.queue_index = idx;
+                let track = self.queue[self.queue_index].clone();
+                self.play_track(track)
+            }
+            None => Ok(()),
+        }
     }
 
     pub fn volume_up(&mut self) {
         self.volume = (self.volume + 0.05).min(1.0);
-        if let Some(sink) = &self.sink {
-            sink.set_volume(self.volume);
-        }
+        self.sink.set_volume(self.volume);
     }
 
     pub fn volume_down(&mut self) {
         self.volume = (self.volume - 0.05).max(0.0);
-        if let Some(sink) = &self.sink {
-            sink.set_volume(self.volume);
-        }
+        self.sink.set_volume(self.volume);
     }
 
     pub fn elapsed_secs(&self) -> i64 {
@@ -479,12 +511,83 @@ impl Player {
         0.0
     }
 
-    /// Returns true if the sink has finished playing (auto-advance)
     pub fn is_finished(&self) -> bool {
-        if self.state != PlayerState::Playing {
-            return false;
+        self.state == PlayerState::Playing && self.sink.empty()
+    }
+
+    pub fn poll_track_transition(&mut self) -> bool {
+        let boundary_instant = match self.track_finished_rx.try_recv() {
+            Ok(instant) => instant,
+            Err(_) => return false,
+        };
+
+        let expected_next = self.compute_next_index();
+
+        match (expected_next, self.prebuffered_queue_index) {
+            (Some(expected), Some(prebuffered)) if expected == prebuffered => {
+                self.queue_index = expected;
+                self.current_track = self.prebuffered_track.take();
+                self.decoder_state = self.prebuffered_decoder_state.take();
+                self.playback_start = Some(boundary_instant);
+                self.paused_elapsed = Duration::ZERO;
+                self.seek_offset = Duration::ZERO;
+                self.next_track_buffered = false;
+                self.prebuffered_queue_index = None;
+                true
+            }
+            (Some(expected), _) => {
+                self.queue_index = expected;
+                let track = self.queue[self.queue_index].clone();
+                let _ = self.play_track(track);
+                true
+            }
+            (None, _) => {
+                self.stop();
+                true
+            }
         }
-        self.sink.as_ref().map(|s| s.empty()).unwrap_or(false)
+    }
+
+    pub fn maybe_prebuffer_next(&mut self) {
+        if self.state != PlayerState::Playing || self.next_track_buffered {
+            return;
+        }
+        if let Some(track) = &self.current_track {
+            if track.duration > 0 && (track.duration - self.elapsed_secs()) <= 5 {
+                self.prebuffer_next();
+            }
+        }
+    }
+
+    fn prebuffer_next(&mut self) {
+        if self.next_track_buffered || self.queue.is_empty() {
+            return;
+        }
+        let next_idx = match self.compute_next_index() {
+            Some(idx) => idx,
+            None => return,
+        };
+        let mut track = self.queue[next_idx].clone();
+
+        if track.duration <= 0 {
+            if let Some(duration) = crate::art::extract_duration(&track.path) {
+                Arc::make_mut(&mut track).duration = duration;
+            }
+        }
+
+        let path = Path::new(&track.path);
+        let decoder_state = match DecoderState::new(path) {
+            Ok(ds) => Arc::new(Mutex::new(ds)),
+            Err(_) => return,
+        };
+        let source = SymphoniaSource::new(decoder_state.clone());
+        let gapless = GaplessSource::new(source, self.track_finished_tx.clone());
+        self.sink.append(gapless);
+
+        self.prebuffered_decoder_state = Some(decoder_state);
+        self.prebuffered_track = Some(track);
+        self.prebuffered_queue_index = Some(next_idx);
+        self.next_track_buffered = true;
     }
 
     pub fn set_queue(&mut self, tracks: Vec<Arc<Track>>, start_index: usize) {

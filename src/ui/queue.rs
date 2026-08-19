@@ -35,7 +35,7 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             "No tracks in queue\n\nPress [{}] on a track\nor [{}] to add all",
             add_key, add_all_key
         ))
-        .style(Style::default().fg(c.dim))
+        .style(c.dim_style())
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });
         f.render_widget(empty, inner);
@@ -72,16 +72,13 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             let title_str = truncate_field(&title_artist, title_max);
 
             let style = if is_selected && active {
-                Style::default()
-                    .fg(c.highlight)
-                    .bg(c.selection_bg)
-                    .add_modifier(Modifier::BOLD)
+                c.selected_style()
             } else if is_selected {
-                Style::default().fg(c.accent2).bg(c.selection_bg)
+                c.selected_accent2_style()
             } else if is_playing {
                 Style::default().fg(c.playing).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(c.foreground)
+                c.normal_style()
             };
 
             let dur_style = if is_selected && active {
@@ -89,7 +86,7 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
             } else if is_selected {
                 style
             } else {
-                Style::default().fg(c.dim)
+                c.dim_style()
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{}{}", icon, title_str), style),
@@ -102,7 +99,7 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.queue_index));
 
     let list = List::new(items)
-        .style(Style::default().bg(c.background))
+        .style(c.block_style())
         .highlight_style(Style::default().bg(c.selection_bg));
 
     f.render_stateful_widget(list, inner, &mut state);
