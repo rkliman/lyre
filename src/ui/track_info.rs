@@ -43,7 +43,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
 
     // No track available in current context
     let has_track = if app.active_panel == Panel::Queue {
-        !app.player.queue.is_empty()
+        !app.queue.is_empty()
     } else {
         !app.track_list.is_empty()
     };
@@ -65,7 +65,7 @@ pub(super) fn render_track_info(f: &mut Frame, app: &mut App, area: Rect) {
     let readonly = app.info_readonly.clone();
     let duration_str = {
         let track = if app.active_panel == Panel::Queue {
-            &app.player.queue[app.queue_index.min(app.player.queue.len() - 1)]
+            &app.queue.items[app.queue.index.min(app.queue.len() - 1)]
         } else {
             &app.track_list.items[app.track_list.index.min(app.track_list.items.len() - 1)]
         };

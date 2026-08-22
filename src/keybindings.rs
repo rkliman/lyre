@@ -23,7 +23,7 @@ pub enum Action {
     NewPlaylist, AddToPlaylist, RemoveFromPlaylist,
     MoveTrackUp, MoveTrackDown,
 
-    SearchExit, SearchConfirm, SearchBackspace, SearchChar(char),
+    SearchExit,
     HelpScroll(i32), HelpClose,
     LyricsReload,
     OverlayConfirm, OverlayCancel, OverlayChar(char),
@@ -147,8 +147,6 @@ impl Keybindings {
 
             // Search mode
             kb!(vec![Esc], Action::SearchExit, Search),
-            kb!(vec![Enter], Action::SearchConfirm, Search),
-            kb!(vec![Backspace], Action::SearchBackspace, Search),
 
             // Help overlay
             kb!(vec![Esc, Char('?')], Action::HelpClose, Help),
@@ -216,18 +214,9 @@ impl Keybindings {
     }
 
     fn lookup_search(&self, key: KeyCode) -> Option<Action> {
-        // Check defined keybindings first
-        if let Some(action) = self.all.iter()
+        self.all.iter()
             .find(|kb| kb.context == Context::Search && kb.keys.contains(&key))
             .map(|kb| kb.action.clone())
-        {
-            return Some(action);
-        }
-        // Fallback: any character is a SearchChar
-        match key {
-            Char(c) => Some(Action::SearchChar(c)),
-            _ => None,
-        }
     }
 
     fn lookup_help(&self, key: KeyCode) -> Option<Action> {

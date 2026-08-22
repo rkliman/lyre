@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
 
-use crate::navigable_list::{NavigableList, extend_range_selection};
+use crate::navigable_list::NavigableList;
 
 use crate::db::Db;
 use crate::keybindings::{Action, Keybindings, key_to_code};
 use crate::player::Player;
+use crate::text_input::TextInput;
 use crate::playlist::{scan_playlists, Playlist};
 use crate::state::StateDb;
 use crate::types::{
@@ -61,24 +62,22 @@ pub struct App {
     pub sidebar_list: NavigableList<SidebarItem>,
     pub sidebar_expanded: HashMap<String, bool>,
     pub sidebar_search_mode: bool,
-    pub sidebar_search_query: String,
+    pub sidebar_search_input: TextInput,
     pub sidebar_search_section: Option<String>,
     pub playlists: Vec<Playlist>,
     pub music_dir: String,
     pub db_path: String,
-    pub queue_index: usize,
-    pub queue_selected: std::collections::HashSet<usize>,
-    pub queue_selection_anchor: Option<usize>,
+    pub queue: NavigableList<Arc<Track>>,
     pub active_panel: Panel,
     pub sort_field: SortField,
     pub sort_order: SortOrder,
     pub search_mode: bool,
-    pub search_query: String,
+    pub search_input: TextInput,
     pub player: Player,
     pub status_message: Option<String>,
     pub art: crate::art::AlbumArtState,
     pub overlay: Overlay,
-    pub global_search_query: String,
+    pub global_search_input: TextInput,
     pub global_search: NavigableList<GlobalSearchResult>,
     pub add_to_playlist: NavigableList<AddToPlaylistItem>,
     pub show_help: bool,
@@ -165,6 +164,7 @@ impl App {
                 let keybindings = Keybindings::new();
 
                 let state_db = StateDb::open().ok();
+                let mut restored_queue: Vec<Arc<Track>> = Vec::new();
                 let mut restored_queue_index: usize = 0;
                 let mut restored_position: Option<u64> = None;
                 if let Some(ref sdb) = state_db {
@@ -182,12 +182,12 @@ impl App {
                                 .and_then(|v| v.parse::<usize>().ok())
                                 .unwrap_or(0)
                                 .min(queue.len() - 1);
-                            player.queue_index = restored_queue_index;
+                            player.playing_index = restored_queue_index;
                             player.current_track = Some(queue[restored_queue_index].clone());
-                            player.queue = queue;
                             if let Some(pos) = restored_position {
                                 player.set_display_position(std::time::Duration::from_secs(pos));
                             }
+                            restored_queue = queue;
                         }
                     }
                     if let Some(v) = sdb.load_state("volume").and_then(|s| s.parse::<f32>().ok()) {
@@ -249,19 +249,17 @@ impl App {
                     sidebar_list: NavigableList::default(),
                     sidebar_expanded,
                     sidebar_search_mode: false,
-                    sidebar_search_query: String::new(),
+                    sidebar_search_input: TextInput::new(),
                     sidebar_search_section: None,
                     playlists,
                     music_dir,
                     db_path,
-                    queue_index: restored_queue_index,
-                    queue_selected: std::collections::HashSet::new(),
-                    queue_selection_anchor: None,
-                    active_panel: Panel::Sidebar,
+                    queue: NavigableList::new(restored_queue),
+                    active_panel: Panel::Queue,
                     sort_field: SortField::Artist,
                     sort_order: SortOrder::Asc,
                     search_mode: false,
-                    search_query: String::new(),
+                    search_input: TextInput::new(),
                     player,
                     status_message: None,
                     art: crate::art::AlbumArtState {
@@ -269,7 +267,7 @@ impl App {
                         ..Default::default()
                     },
                     overlay: Overlay::None,
-                    global_search_query: String::new(),
+                    global_search_input: TextInput::new(),
                     global_search: NavigableList::default(),
                     add_to_playlist: NavigableList::default(),
                     show_help: false,
@@ -292,6 +290,7 @@ impl App {
                     restored_position,
                     last_position_save: std::time::Instant::now(),
                 };
+                app.queue.index = restored_queue_index;
                 app.rebuild_sidebar();
                 app.apply_sort();
                 app.refresh_album_art();
@@ -343,19 +342,17 @@ impl App {
             sidebar_list: NavigableList::default(),
             sidebar_expanded,
             sidebar_search_mode: false,
-            sidebar_search_query: String::new(),
+            sidebar_search_input: TextInput::new(),
             sidebar_search_section: None,
             playlists,
             music_dir,
             db_path,
-            queue_index: 0,
-            queue_selected: std::collections::HashSet::new(),
-            queue_selection_anchor: None,
-            active_panel: Panel::Sidebar,
+            queue: NavigableList::default(),
+            active_panel: Panel::Queue,
             sort_field: SortField::Artist,
             sort_order: SortOrder::Asc,
             search_mode: false,
-            search_query: String::new(),
+            search_input: TextInput::new(),
             player,
             status_message,
             art: crate::art::AlbumArtState {
@@ -363,7 +360,7 @@ impl App {
                 ..Default::default()
             },
             overlay,
-            global_search_query: String::new(),
+            global_search_input: TextInput::new(),
             global_search: NavigableList::default(),
             add_to_playlist: NavigableList::default(),
             show_help: false,
@@ -448,7 +445,7 @@ impl App {
     }
 
     fn filter_sidebar_section(&mut self, section: &str) {
-        if self.sidebar_search_query.is_empty() {
+        if self.sidebar_search_input.is_empty() {
             for sec in SidebarSection::ALL {
                 self.sidebar.get_mut(sec).filter_indices = None;
             }
@@ -458,7 +455,7 @@ impl App {
         let Some(section) = SidebarSection::from_key(section) else {
             return;
         };
-        let query = self.sidebar_search_query.clone();
+        let query = self.sidebar_search_input.text.clone();
         let matcher = &self.matcher;
         let state = self.sidebar.get_mut(section);
         let mut scored: Vec<(i64, usize)> = state
@@ -472,11 +469,12 @@ impl App {
     }
 
     pub fn tick(&mut self) {
-        if self.player.poll_track_transition() {
+        if self.player.poll_track_transition(&self.queue.items) {
+            self.queue.index = self.player.playing_index;
             self.refresh_album_art();
             self.persist_queue();
         }
-        self.player.maybe_prebuffer_next();
+        self.player.maybe_prebuffer_next(&self.queue.items);
         if self.player.is_finished() {
             self.player.stop();
         }
@@ -575,7 +573,7 @@ impl App {
                             break;
                         }
                     }
-                    for t in &mut self.player.queue {
+                    for t in &mut self.queue.items {
                         if t.path == *path {
                             Arc::make_mut(t).duration = *dur;
                             break;
@@ -601,6 +599,11 @@ impl App {
         // Handle sidebar search mode before keybindings lookup
         if self.sidebar_search_mode {
             return self.handle_sidebar_search_key(key.code);
+        }
+
+        // Handle tracklist search mode before keybindings lookup
+        if self.search_mode {
+            return self.handle_tracklist_search_key(key.code);
         }
 
         // Handle track-info popup keys before normal keybindings lookup.
@@ -652,10 +655,10 @@ impl App {
         // Handle Escape on sidebar with active filter
         if key.code == KeyCode::Esc
             && self.active_panel == Panel::Sidebar
-            && (!self.sidebar_search_query.is_empty() || self.sidebar_search_section.is_some())
+            && (!self.sidebar_search_input.is_empty() || self.sidebar_search_section.is_some())
         {
             self.sidebar_search_mode = false;
-            self.sidebar_search_query.clear();
+            self.sidebar_search_input.clear();
             if let Some(section) = self.sidebar_search_section.clone() {
                 self.filter_sidebar_section(&section);
                 self.rebuild_sidebar();
@@ -668,7 +671,7 @@ impl App {
             key.code,
             key.modifiers,
             self.active_panel,
-            self.search_mode,
+            false,
             self.show_help,
             self.overlay != Overlay::None,
         );
@@ -692,9 +695,19 @@ impl App {
             }
             Action::CycleForward => self.cycle_panel_forward(),
             Action::CycleBackward => self.cycle_panel_backward(),
-            Action::JumpToSidebar => self.active_panel = Panel::Sidebar,
+            Action::JumpToSidebar => {
+                if self.active_panel == Panel::Queue {
+                    self.snap_queue_to_playing();
+                }
+                self.active_panel = Panel::Sidebar;
+            }
             Action::JumpToQueue => self.active_panel = Panel::Queue,
-            Action::JumpToTracks => self.active_panel = Panel::TrackList,
+            Action::JumpToTracks => {
+                if self.active_panel == Panel::Queue {
+                    self.snap_queue_to_playing();
+                }
+                self.active_panel = Panel::TrackList;
+            }
             Action::ToggleArtWindow => self.toggle_art_window(),
             Action::ToggleLyrics => self.toggle_lyrics_panel(),
 
@@ -702,8 +715,7 @@ impl App {
             Action::PlayPause => {
                 if self.player.state == PlayerState::Stopped {
                     if self.player.current_track.is_some() {
-                        // Resume the restored track from the saved position.
-                        let track = self.player.queue[self.player.queue_index].clone();
+                        let track = self.queue.items[self.player.playing_index].clone();
                         match self.player.play_track(track) {
                             Ok(_) => {
                                 self.apply_restored_position();
@@ -712,22 +724,20 @@ impl App {
                             }
                             Err(e) => self.set_status(format!("Error: {}", e)),
                         }
-                    } else if self.active_panel == Panel::Queue {
-                        self.play_queue_selected();
-                    } else {
-                        self.play_selected();
                     }
                 } else {
                     self.player.toggle_pause();
                 }
             }
             Action::Next => {
-                let _ = self.player.next();
+                let _ = self.player.next(&self.queue.items);
+                self.queue.index = self.player.playing_index;
                 self.refresh_album_art();
                 self.persist_queue();
             }
             Action::Previous => {
-                let _ = self.player.prev();
+                let _ = self.player.prev(&self.queue.items);
+                self.queue.index = self.player.playing_index;
                 self.refresh_album_art();
                 self.persist_queue();
             }
@@ -841,14 +851,12 @@ impl App {
             Action::AddToQueue => self.add_selected_to_queue(),
             Action::AddAllToQueue => self.add_all_to_queue(),
             Action::RemoveFromQueue => {
-                self.remove_from_queue(self.queue_index);
+                self.remove_from_queue(self.queue.index);
             }
             Action::ClearQueue => {
                 self.player.stop();
-                self.player.clear_queue();
-                self.queue_index = 0;
-                self.queue_selected.clear();
-                self.queue_selection_anchor = None;
+                self.player.clear_playback_state();
+                self.queue.set_items(Vec::new());
                 self.clear_album_art();
                 self.persist_queue();
             }
@@ -869,41 +877,27 @@ impl App {
             }
             Action::MoveTrackUp => {
                 if self.active_panel == Panel::Queue {
-                    self.queue_move_track_up(self.queue_index);
+                    self.queue_move_track_up(self.queue.index);
                 } else if matches!(&self.track_context, TrackContext::Playlist(_)) {
                     self.playlist_move_track_up(self.track_list.index);
                 }
             }
             Action::MoveTrackDown => {
                 if self.active_panel == Panel::Queue {
-                    self.queue_move_track_down(self.queue_index);
+                    self.queue_move_track_down(self.queue.index);
                 } else if matches!(&self.track_context, TrackContext::Playlist(_)) {
                     self.playlist_move_track_down(self.track_list.index);
                 }
             }
 
-            // Search
             Action::SearchExit => {
                 self.search_mode = false;
-                if self.search_query.is_empty() {
+                if self.search_input.is_empty() {
                     self.track_list.items = self.search_base_tracks.clone();
                     if !matches!(self.track_context, TrackContext::Playlist(_)) {
                         self.apply_sort();
                     }
                 }
-            }
-            Action::SearchConfirm => {
-                self.search_mode = false;
-                self.active_panel = Panel::TrackList;
-                self.track_list.index = 0;
-            }
-            Action::SearchBackspace => {
-                self.search_query.pop();
-                self.apply_fuzzy_search();
-            }
-            Action::SearchChar(c) => {
-                self.search_query.push(c);
-                self.apply_fuzzy_search();
             }
 
             // Help
@@ -939,7 +933,7 @@ impl App {
 
             Action::GlobalSearch => {
                 self.overlay = Overlay::GlobalSearch;
-                self.global_search_query.clear();
+                self.global_search_input.clear();
                 self.global_search.index = 0;
                 self.global_search.items.clear();
             }
@@ -1248,17 +1242,16 @@ impl App {
     }
 
     fn handle_queue_key(&mut self, key: KeyCode) {
-        let queue_len = self.player.queue.len();
-        if crate::navigable_list::navigate_index(key, &mut self.queue_index, queue_len) {
-            self.clear_queue_selection();
+        if self.queue.navigate(key) {
+            self.queue.clear_selection();
             return;
         }
 
         match key {
             KeyCode::Enter => {
-                if self.queue_index < self.player.queue.len() {
-                    self.player.queue_index = self.queue_index;
-                    let track = self.player.queue[self.queue_index].clone();
+                if self.queue.index < self.queue.len() {
+                    self.player.playing_index = self.queue.index;
+                    let track = self.queue.items[self.queue.index].clone();
                     match self.player.play_track(track) {
                         Ok(_) => {
                             self.refresh_album_art();
@@ -1270,12 +1263,21 @@ impl App {
                 }
             }
             KeyCode::Left | KeyCode::Char('h') => {
+                self.snap_queue_to_playing();
                 self.active_panel = Panel::TrackList;
             }
             KeyCode::Right | KeyCode::Char('l') if self.lyrics.visible => {
+                self.snap_queue_to_playing();
                 self.active_panel = Panel::Lyrics;
             }
             _ => {}
+        }
+    }
+
+    fn snap_queue_to_playing(&mut self) {
+        if !self.queue.is_empty() {
+            self.queue.index = self.player.playing_index.min(self.queue.len().saturating_sub(1));
+            self.queue.clear_selection();
         }
     }
 
@@ -1319,10 +1321,10 @@ impl App {
     /// Get the currently-focused track for the info popup (matches track_info.rs logic).
     fn info_focused_track(&self) -> Option<&Track> {
         if self.active_panel == Panel::Queue {
-            if self.player.queue.is_empty() {
+            if self.queue.is_empty() {
                 None
             } else {
-                Some(&*self.player.queue[self.queue_index.min(self.player.queue.len() - 1)])
+                Some(&*self.queue.items[self.queue.index.min(self.queue.len() - 1)])
             }
         } else if self.track_list.is_empty() {
             None
@@ -1492,7 +1494,7 @@ impl App {
         for t in self.track_list.items.iter_mut().filter(|t| t.path == path) {
             apply(Arc::make_mut(t));
         }
-        for t in self.player.queue.iter_mut().filter(|t| t.path == path) {
+        for t in self.queue.items.iter_mut().filter(|t| t.path == path) {
             apply(Arc::make_mut(t));
         }
         if let Some(ct) = self.player.current_track.as_mut() {
@@ -1538,12 +1540,36 @@ impl App {
         self.rebuild_sidebar();
     }
 
+    fn handle_tracklist_search_key(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Esc => {
+                self.search_mode = false;
+                if self.search_input.is_empty() {
+                    self.track_list.items = self.search_base_tracks.clone();
+                    if !matches!(self.track_context, TrackContext::Playlist(_)) {
+                        self.apply_sort();
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                self.search_mode = false;
+                self.active_panel = Panel::TrackList;
+                self.track_list.index = 0;
+            }
+            other => {
+                if self.search_input.handle_key(other) {
+                    self.apply_fuzzy_search();
+                }
+            }
+        }
+        false
+    }
+
     fn handle_sidebar_search_key(&mut self, key: KeyCode) -> bool {
         match key {
             KeyCode::Esc => {
-                // Clear search and hide searchbar
                 self.sidebar_search_mode = false;
-                self.sidebar_search_query.clear();
+                self.sidebar_search_input.clear();
                 if let Some(section) = &self.sidebar_search_section.clone() {
                     self.filter_sidebar_section(section);
                     self.rebuild_sidebar();
@@ -1551,24 +1577,16 @@ impl App {
                 self.sidebar_search_section = None;
             }
             KeyCode::Enter => {
-                // Keep search active but allow navigation
                 self.sidebar_search_mode = false;
             }
-            KeyCode::Backspace => {
-                self.sidebar_search_query.pop();
-                if let Some(section) = &self.sidebar_search_section.clone() {
-                    self.filter_sidebar_section(section);
-                    self.rebuild_sidebar();
+            other => {
+                if self.sidebar_search_input.handle_key(other) {
+                    if let Some(section) = &self.sidebar_search_section.clone() {
+                        self.filter_sidebar_section(section);
+                        self.rebuild_sidebar();
+                    }
                 }
             }
-            KeyCode::Char(c) => {
-                self.sidebar_search_query.push(c);
-                if let Some(section) = &self.sidebar_search_section.clone() {
-                    self.filter_sidebar_section(section);
-                    self.rebuild_sidebar();
-                }
-            }
-            _ => {}
         }
         false
     }
@@ -1581,31 +1599,12 @@ impl App {
         self.track_list.extend_down_by(step);
     }
 
-    fn clear_queue_selection(&mut self) {
-        self.queue_selected.clear();
-        self.queue_selection_anchor = None;
-    }
-
     fn extend_queue_selection_up(&mut self, step: usize) {
-        extend_range_selection(
-            &mut self.queue_index,
-            self.player.queue.len(),
-            true,
-            step,
-            &mut self.queue_selected,
-            &mut self.queue_selection_anchor,
-        );
+        self.queue.extend_up_by(step);
     }
 
     fn extend_queue_selection_down(&mut self, step: usize) {
-        extend_range_selection(
-            &mut self.queue_index,
-            self.player.queue.len(),
-            false,
-            step,
-            &mut self.queue_selected,
-            &mut self.queue_selection_anchor,
-        );
+        self.queue.extend_down_by(step);
     }
 
 
@@ -1623,7 +1622,7 @@ impl App {
 
         self.track_heading = item.title();
 
-        self.search_query.clear();
+        self.search_input.clear();
         self.track_context = TrackContext::Library;
 
         let new_tracks = match &item {
@@ -1729,17 +1728,16 @@ impl App {
 
     fn open_add_to_playlist_overlay(&mut self) {
         let track_paths = if self.active_panel == Panel::Queue {
-            if self.queue_selected.is_empty() {
-                if let Some(track) = self.player.queue.get(self.queue_index) {
+            if self.queue.selected.is_empty() {
+                if let Some(track) = self.queue.items.get(self.queue.index) {
                     vec![track.path.clone()]
                 } else {
                     return;
                 }
             } else {
-                let mut indices: Vec<usize> = self.queue_selected.iter().copied().collect();
-                indices.sort_unstable();
+                let indices = self.queue.selected_ascending();
                 indices.iter()
-                    .filter_map(|&idx| self.player.queue.get(idx))
+                    .filter_map(|&idx| self.queue.items.get(idx))
                     .map(|track| track.path.clone())
                     .collect()
             }
@@ -1984,11 +1982,11 @@ impl App {
 
     fn apply_fuzzy_search(&mut self) {
         self.track_list.clear_selection();
-        if self.search_query.is_empty() {
+        if self.search_input.is_empty() {
             self.track_list.items = self.search_base_tracks.clone();
             return;
         }
-        let q = self.search_query.clone();
+        let q = self.search_input.text.clone();
         let matcher = &self.matcher;
         let mut scored: Vec<(i64, Arc<Track>)> = self
             .search_base_tracks
@@ -2091,6 +2089,7 @@ impl App {
             Panel::Sidebar => Panel::TrackList,
             Panel::TrackList => Panel::Queue,
             Panel::Queue => {
+                self.snap_queue_to_playing();
                 if self.lyrics.visible {
                     self.load_lyrics();
                     Panel::Lyrics
@@ -2116,7 +2115,10 @@ impl App {
                 }
             }
             Panel::TrackList => Panel::Sidebar,
-            Panel::Queue => Panel::TrackList,
+            Panel::Queue => {
+                self.snap_queue_to_playing();
+                Panel::TrackList
+            }
             Panel::Lyrics => {
                 self.lyrics.manual_scroll = false;
                 Panel::Queue
@@ -2132,7 +2134,9 @@ impl App {
                 self.active_panel = Panel::Queue;
             }
         } else {
-            // Show lyrics panel
+            if self.active_panel == Panel::Queue {
+                self.snap_queue_to_playing();
+            }
             self.lyrics.visible = true;
             self.load_lyrics();
             self.active_panel = Panel::Lyrics;
@@ -2144,9 +2148,11 @@ impl App {
     }
 
     fn enter_search(&mut self) {
+        if self.active_panel == Panel::Queue {
+            self.snap_queue_to_playing();
+        }
         self.search_mode = true;
         self.search_base_tracks = self.track_list.items.clone();
-        // Switch to track list panel so keypresses go to the search bar
         self.active_panel = Panel::TrackList;
     }
 
@@ -2155,34 +2161,42 @@ impl App {
             return;
         }
         let idx = self.track_list.index.min(self.track_list.items.len() - 1);
+        let selected_track = self.track_list.items[idx].clone();
 
-        // If queue is empty, start a new queue from filtered tracks.
-        // Otherwise, just play the selected track from the current queue.
-        if self.player.queue.is_empty() {
-            self.player.set_queue(self.track_list.items.clone(), idx);
-            // Update UI's queue_index to match
-            self.queue_index = idx;
-        } else {
-            // Add the selected track to the queue if not already there
-            let track = self.track_list.items[idx].clone();
-            if !self.player.queue.iter().any(|t| t.path == track.path) {
-                self.player.queue.push(track.clone());
+        if self.queue.is_empty() {
+            if self.player.shuffle {
+                use rand::seq::SliceRandom;
+                let mut tracks: Vec<Arc<Track>> = self.track_list.items.iter()
+                    .filter(|t| t.path != selected_track.path)
+                    .cloned()
+                    .collect();
+                tracks.shuffle(&mut rand::thread_rng());
+                tracks.insert(0, selected_track.clone());
+                self.queue.set_items(tracks);
+                self.queue.index = 0;
+                self.player.init_queue(0);
+            } else {
+                self.queue.set_items(self.track_list.items.clone());
+                self.queue.index = idx;
+                self.player.init_queue(idx);
             }
-            // Set queue index to this newly added (or existing) track
+        } else {
+            if !self.queue.items.iter().any(|t| t.path == selected_track.path) {
+                self.queue.items.push(selected_track.clone());
+            }
             if let Some(pos) = self
-                .player
                 .queue
+                .items
                 .iter()
-                .position(|t| t.path == self.track_list.items[idx].path)
+                .position(|t| t.path == selected_track.path)
             {
-                self.player.queue_index = pos;
-                // Update UI's queue_index to match
-                self.queue_index = pos;
+                self.player.playing_index = pos;
+                self.queue.index = pos;
             }
         }
 
         self.restored_position = None;
-        let track = self.player.queue[self.player.queue_index].clone();
+        let track = self.queue.items[self.player.playing_index].clone();
         match self.player.play_track(track) {
             Ok(_) => {
                 self.set_status(format!(
@@ -2208,10 +2222,10 @@ impl App {
     }
 
     fn play_queue_selected(&mut self) {
-        if self.queue_index < self.player.queue.len() {
+        if self.queue.index < self.queue.len() {
             self.restored_position = None;
-            self.player.queue_index = self.queue_index;
-            let track = self.player.queue[self.queue_index].clone();
+            self.player.playing_index = self.queue.index;
+            let track = self.queue.items[self.queue.index].clone();
             match self.player.play_track(track) {
                 Ok(_) => self.refresh_album_art(),
                 Err(e) => self.set_status(format!("Error playing track: {}", e)),
@@ -2230,43 +2244,44 @@ impl App {
 
     fn add_selected_to_queue(&mut self) {
         if self.track_list.selected.is_empty() {
-            // Add single track
             if let Some(track) = self.track_list.items.get(self.track_list.index) {
                 let title = track.display_title().to_string();
-                self.player.add_to_queue(track.clone());
-                // Update UI's queue_index to point to the newly added track
-                self.queue_index = self.player.queue.len().saturating_sub(1);
+                self.queue.items.push(track.clone());
+                self.queue.index = self.queue.len().saturating_sub(1);
                 self.set_status(format!("Added to queue: {}", title));
             }
         } else {
-            // Add multiple selected tracks
             let count = self.track_list.selected.len();
             let indices = self.track_list.selected_ascending();
 
-            for &idx in &indices {
-                if let Some(track) = self.track_list.items.get(idx) {
-                    self.player.add_to_queue(track.clone());
-                }
+            let mut tracks: Vec<Arc<Track>> = indices
+                .iter()
+                .filter_map(|&idx| self.track_list.items.get(idx).cloned())
+                .collect();
+
+            if self.player.shuffle {
+                use rand::seq::SliceRandom;
+                tracks.shuffle(&mut rand::thread_rng());
             }
 
-            // Update UI's queue_index to point to the first newly added track
-            self.queue_index = self.player.queue.len().saturating_sub(count);
+            self.queue.items.extend(tracks);
+            self.queue.index = self.queue.len().saturating_sub(count);
             self.set_status(format!("Added {} tracks to queue", count));
-
-            // Clear selection after adding
             self.track_list.clear_selection();
         }
         self.persist_queue();
     }
 
     fn add_all_to_queue(&mut self) {
-        let n = self.track_list.items.len();
-        for t in &self.track_list.items {
-            self.player.queue.push(t.clone());
+        let mut tracks = self.track_list.items.clone();
+        if self.player.shuffle {
+            use rand::seq::SliceRandom;
+            tracks.shuffle(&mut rand::thread_rng());
         }
-        // Update UI's queue_index to point to the first newly added track
+        let n = tracks.len();
+        self.queue.items.extend(tracks);
         if n > 0 {
-            self.queue_index = self.player.queue.len().saturating_sub(n);
+            self.queue.index = self.queue.len().saturating_sub(n);
         }
         self.set_status(format!("Added {} tracks to queue", n));
         self.persist_queue();
@@ -2339,7 +2354,7 @@ impl App {
 
     pub fn persist_queue(&self) {
         if let Some(ref sdb) = self.state_db {
-            let _ = sdb.save_queue(&self.player.queue, self.player.queue_index);
+            let _ = sdb.save_queue(&self.queue.items, self.player.playing_index);
             let _ = sdb.save_state("playback_position", &self.player.elapsed_secs().max(0).to_string());
         }
     }
@@ -2429,45 +2444,51 @@ impl App {
     }
 
     fn queue_move_track_up(&mut self, index: usize) {
-        if index == 0 || index >= self.player.queue.len() {
+        if index == 0 || index >= self.queue.len() {
             return;
         }
-        self.player.queue.swap(index - 1, index);
-        self.queue_index = index - 1;
-        if self.player.queue_index == index {
-            self.player.queue_index = index - 1;
-        } else if self.player.queue_index == index - 1 {
-            self.player.queue_index = index;
+        self.queue.items.swap(index - 1, index);
+        self.queue.index = index - 1;
+        if self.player.playing_index == index {
+            self.player.playing_index = index - 1;
+        } else if self.player.playing_index == index - 1 {
+            self.player.playing_index = index;
         }
         self.persist_queue();
     }
 
     fn queue_move_track_down(&mut self, index: usize) {
-        if index + 1 >= self.player.queue.len() {
+        if index + 1 >= self.queue.len() {
             return;
         }
-        self.player.queue.swap(index, index + 1);
-        self.queue_index = index + 1;
-        if self.player.queue_index == index {
-            self.player.queue_index = index + 1;
-        } else if self.player.queue_index == index + 1 {
-            self.player.queue_index = index;
+        self.queue.items.swap(index, index + 1);
+        self.queue.index = index + 1;
+        if self.player.playing_index == index {
+            self.player.playing_index = index + 1;
+        } else if self.player.playing_index == index + 1 {
+            self.player.playing_index = index;
         }
         self.persist_queue();
     }
 
     fn remove_from_queue(&mut self, index: usize) {
-        let was_playing_current = index == self.player.queue_index;
+        if index >= self.queue.len() {
+            return;
+        }
+        let was_playing_current = index == self.player.playing_index;
         if was_playing_current {
             self.player.stop();
         }
-        self.player.remove_from_queue(index);
-        if self.queue_index >= self.player.queue.len() && self.queue_index > 0 {
-            self.queue_index -= 1;
+        self.queue.items.remove(index);
+        if index < self.player.playing_index {
+            self.player.playing_index -= 1;
+        } else if self.player.playing_index >= self.queue.len() && !self.queue.is_empty() {
+            self.player.playing_index = self.queue.len() - 1;
         }
+        self.queue.clamp_index();
         if was_playing_current {
-            if index < self.player.queue.len() {
-                let track = self.player.queue[self.player.queue_index].clone();
+            if self.player.playing_index < self.queue.len() {
+                let track = self.queue.items[self.player.playing_index].clone();
                 match self.player.play_track(track) {
                     Ok(_) => self.refresh_album_art(),
                     Err(e) => self.set_status(format!("Error playing track: {}", e)),
@@ -2565,29 +2586,23 @@ impl App {
         match key {
             KeyCode::Esc => {
                 self.overlay = Overlay::None;
-                self.global_search_query.clear();
+                self.global_search_input.clear();
                 self.global_search.index = 0;
                 self.global_search.items.clear();
             }
             KeyCode::Enter => {
                 self.navigate_global_search_selected();
                 self.overlay = Overlay::None;
-                self.global_search_query.clear();
+                self.global_search_input.clear();
                 self.global_search.index = 0;
                 self.global_search.items.clear();
             }
-            KeyCode::Backspace => {
-                self.global_search_query.pop();
-                self.recompute_global_search();
+            KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
+                self.global_search.navigate_arrows_only(key);
             }
-            _ => {
-                // Only arrow/page/home/end navigate the list — vim-style
-                // letter shortcuts would swallow characters meant for the query.
-                if !self.global_search.navigate_arrows_only(key) {
-                    if let KeyCode::Char(c) = key {
-                        self.global_search_query.push(c);
-                        self.recompute_global_search();
-                    }
+            other => {
+                if self.global_search_input.handle_key(other) {
+                    self.recompute_global_search();
                 }
             }
         }
@@ -2595,13 +2610,13 @@ impl App {
     }
 
     fn recompute_global_search(&mut self) {
-        if self.global_search_query.is_empty() {
+        if self.global_search_input.is_empty() {
             self.global_search.items.clear();
             self.global_search.index = 0;
             return;
         }
 
-        let q = self.global_search_query.clone();
+        let q = self.global_search_input.text.clone();
         let matcher = &self.matcher;
 
         let mut scored: Vec<(i64, GlobalSearchResult)> = Vec::new();
@@ -2674,7 +2689,7 @@ impl App {
 
     fn navigate_to_sidebar_item(&mut self, item: SidebarItem) {
         self.sidebar_search_mode = false;
-        self.sidebar_search_query.clear();
+        self.sidebar_search_input.clear();
         self.sidebar_search_section = None;
         for sec in SidebarSection::ALL {
             self.sidebar.get_mut(sec).filter_indices = None;

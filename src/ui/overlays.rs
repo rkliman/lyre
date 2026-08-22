@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::types::{AddToPlaylistItem, GlobalSearchResult, SetupField};
-use super::overlay_block;
+use super::{overlay_block, render_text_input_line};
 
 pub(super) fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
     let c = &app.colors;
@@ -272,7 +272,7 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut 
         .collect();
 
     let has_results = !results.is_empty();
-    let empty_message = (!has_results && !app.global_search_query.is_empty())
+    let empty_message = (!has_results && !app.global_search_input.is_empty())
         .then(|| "No results found.".to_string());
 
     // Size the popup to fit content: border(2) + search box(3) + content + footer(1 if results)
@@ -281,7 +281,7 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut 
     } else {
         empty_message.is_some() as u16
     };
-    let footer_h: u16 = if has_results || !app.global_search_query.is_empty() { 1 } else { 0 };
+    let footer_h: u16 = if has_results || !app.global_search_input.is_empty() { 1 } else { 0 };
     let natural_h = 2 + 4 + display_line_count + footer_h;
     let max_h = area.height * 80 / 100;
     let h = natural_h.max(5).min(max_h).min(area.height);
@@ -329,13 +329,7 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut 
     let search_inner = search_box.inner(search_area);
     f.render_widget(search_box, search_area);
 
-    let query_display = Line::from(vec![
-        Span::styled(
-            app.global_search_query.as_str(),
-            c.highlight_bold_style(),
-        ),
-        Span::styled("█", c.accent_style()),
-    ]);
+    let query_display = render_text_input_line(&app.global_search_input, c, c.overlay_bg);
     f.render_widget(
         Paragraph::new(query_display).style(Style::default().bg(c.overlay_bg)),
         search_inner,

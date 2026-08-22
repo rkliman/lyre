@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::types::Panel;
 use crate::util::FAVORITE_ICON;
 
-use super::{list_row_style, panel_block};
+use super::{list_row_style, panel_block, render_search_box};
 
 pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     let c = app.colors.clone();
@@ -78,70 +78,12 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
         },
     );
 
-    let search_active = app.search_mode;
-    let has_query = !app.search_query.is_empty();
-
-    let box_bg = if search_active { c.overlay_bg } else { c.background };
-    let box_border_color = if search_active {
-        c.accent
-    } else if has_query {
-        c.accent2
+    let result_count = if !app.search_input.is_empty() {
+        Some(app.track_list.items.len())
     } else {
-        c.dim
+        None
     };
-
-    let result_hint = if has_query {
-        format!(
-            "  {} result{}",
-            app.track_list.items.len(),
-            if app.track_list.items.len() == 1 { "" } else { "s" }
-        )
-    } else {
-        String::new()
-    };
-
-    let box_title = if search_active {
-        Span::styled(" search ", c.highlight_bold_style())
-    } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), c.accent_style())
-    } else {
-        Span::styled(" search ", c.dim_style())
-    };
-
-    let search_block = Block::default()
-        .title(box_title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(box_border_color))
-        .style(Style::default().bg(box_bg));
-
-    let search_inner = search_block.inner(search_area);
-    f.render_widget(search_block, search_area);
-
-    let content = if search_active {
-        Line::from(vec![
-            Span::styled(
-                app.search_query.clone(),
-                c.highlight_bold_style().bg(box_bg),
-            ),
-            Span::styled("█", c.accent_style().bg(box_bg)),
-        ])
-    } else if has_query {
-        Line::from(Span::styled(
-            app.search_query.clone(),
-            c.border_style().bg(box_bg),
-        ))
-    } else {
-        Line::from(Span::styled(
-            "press / to search…",
-            c.dim_style().bg(box_bg),
-        ))
-    };
-
-    f.render_widget(
-        Paragraph::new(content).style(Style::default().bg(box_bg)),
-        search_inner,
-    );
+    render_search_box(f, search_area, &app.search_input, app.search_mode, result_count, &c);
 
     let w = inner.width as usize;
     let title_w = w * 32 / 100;

@@ -179,44 +179,7 @@ impl<T> NavigableList<T> {
     }
 }
 
-/// Standalone wrapping navigation for indices not owned by a NavigableList (e.g. the queue).
-pub fn navigate_index(key: KeyCode, index: &mut usize, len: usize) -> bool {
-    match key {
-        KeyCode::Up | KeyCode::Char('k') => {
-            if len > 0 {
-                *index = if *index == 0 { len - 1 } else { *index - 1 };
-            }
-            true
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if len > 0 {
-                *index = if *index + 1 >= len { 0 } else { *index + 1 };
-            }
-            true
-        }
-        KeyCode::PageUp | KeyCode::Char('u') => {
-            *index = index.saturating_sub(10);
-            true
-        }
-        KeyCode::PageDown | KeyCode::Char('d') => {
-            *index = (*index + 10).min(len.saturating_sub(1));
-            true
-        }
-        KeyCode::Home | KeyCode::Char('g') => {
-            *index = 0;
-            true
-        }
-        KeyCode::End | KeyCode::Char('G') => {
-            *index = len.saturating_sub(1);
-            true
-        }
-        _ => false,
-    }
-}
-
-/// Shared anchor-based range-selection logic.
-/// Used by NavigableList::extend_up/down and the queue (whose items live in Player).
-pub fn extend_range_selection(
+fn extend_range_selection(
     index: &mut usize,
     len: usize,
     up: bool,

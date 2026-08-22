@@ -113,15 +113,22 @@ pub fn render_block_art_from_image(img: &DynamicImage, char_w: u16, char_h: u16)
 /// Returns None if running in a terminal multiplexer (Zellij, tmux, screen)
 /// since they don't properly forward terminal graphics protocols.
 pub fn create_picker() -> Option<Picker> {
-    // Detect if running in a terminal multiplexer
-    // These don't properly forward terminal graphics escape sequences
     if std::env::var("ZELLIJ").is_ok()
         || std::env::var("TMUX").is_ok()
         || std::env::var("STY").is_ok() {
-        return None; // Force fallback to block art
+        return None;
     }
 
     Picker::from_query_stdio().ok()
+}
+
+/// Query the terminal for the current font size (pixels per character cell).
+pub fn query_font_size() -> Option<(u16, u16)> {
+    let ws = crossterm::terminal::window_size().ok()?;
+    if ws.width == 0 || ws.height == 0 || ws.columns == 0 || ws.rows == 0 {
+        return None;
+    }
+    Some((ws.width / ws.columns, ws.height / ws.rows))
 }
 
 /// Reusable per-area cache for rendering album art in a specific UI region.
@@ -151,9 +158,8 @@ impl AlbumArtCache {
     ) {
         let current_dims = (area.width, area.height);
         if let Some(picker) = picker {
-            if self.dims != current_dims || self.protocol.is_none() {
+            if self.protocol.is_none() {
                 self.protocol = Some(picker.new_resize_protocol(image.clone()));
-                self.dims = current_dims;
             }
             if let Some(protocol) = self.protocol.as_mut() {
                 f.render_stateful_widget(StatefulImage::new(None), area, protocol);
@@ -215,6 +221,21 @@ impl AlbumArtState {
         self.window_cache.clear();
         self.info_track_path = None;
         self.info_image = None;
+        self.info_cache.clear();
+    }
+
+    /// Called on terminal resize. Recreates the picker with updated font size
+    /// so that graphics protocols encode images at the correct pixel dimensions.
+    pub fn on_resize(&mut self) {
+        let Some(old_picker) = self.picker.as_ref() else { return };
+        let Some(new_font_size) = query_font_size() else { return };
+        if new_font_size == old_picker.font_size() {
+            return;
+        }
+        let mut new_picker = Picker::from_fontsize(new_font_size);
+        new_picker.set_protocol_type(old_picker.protocol_type());
+        self.picker = Some(new_picker);
+        self.window_cache.clear();
         self.info_cache.clear();
     }
 }

@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::colors::ColorScheme;
+use crate::text_input::TextInput;
 use crate::types::{Overlay, PlayerState};
 
 mod art_window;
@@ -220,6 +221,90 @@ pub(super) fn overlay_block<'a>(title: &'a str, app: &App) -> Block<'a> {
         .border_type(BorderType::Double)
         .border_style(c.border_active_style())
         .style(Style::default().bg(c.overlay_bg))
+}
+
+pub(super) fn render_search_box(
+    f: &mut Frame,
+    area: Rect,
+    input: &TextInput,
+    active: bool,
+    result_count: Option<usize>,
+    colors: &ColorScheme,
+) {
+    let has_query = !input.is_empty();
+
+    let box_bg = if active { colors.overlay_bg } else { colors.background };
+    let box_border_color = if active {
+        colors.accent
+    } else if has_query {
+        colors.accent2
+    } else {
+        colors.dim
+    };
+
+    let result_hint = match result_count {
+        Some(count) if has_query => format!(
+            "  {} result{}",
+            count,
+            if count == 1 { "" } else { "s" }
+        ),
+        _ => String::new(),
+    };
+
+    let box_title = if active {
+        Span::styled(" search ", colors.highlight_bold_style())
+    } else if has_query {
+        Span::styled(format!(" search{} ", result_hint), colors.accent_style())
+    } else {
+        Span::styled(" search ", colors.dim_style())
+    };
+
+    let search_block = Block::default()
+        .title(box_title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(box_border_color))
+        .style(Style::default().bg(box_bg));
+
+    let search_inner = search_block.inner(area);
+    f.render_widget(search_block, area);
+
+    let content = if active {
+        render_text_input_line(input, colors, box_bg)
+    } else if has_query {
+        Line::from(Span::styled(
+            input.as_str().to_string(),
+            colors.border_style().bg(box_bg),
+        ))
+    } else {
+        Line::from(Span::styled(
+            "press / to search\u{2026}",
+            colors.dim_style().bg(box_bg),
+        ))
+    };
+
+    f.render_widget(
+        Paragraph::new(content).style(Style::default().bg(box_bg)),
+        search_inner,
+    );
+}
+
+pub(super) fn render_text_input_line(input: &TextInput, colors: &ColorScheme, bg: Color) -> Line<'static> {
+    let (before, cursor_char, after) = input.split_at_cursor();
+    let text_style = colors.highlight_bold_style().bg(bg);
+    let mut spans = vec![Span::styled(before.to_string(), text_style)];
+    if cursor_char.is_empty() {
+        spans.push(Span::styled("\u{2588}", colors.accent_style().bg(bg)));
+    } else {
+        spans.push(Span::styled(
+            cursor_char.to_string(),
+            Style::default().fg(bg).bg(colors.accent),
+        ));
+        if !after.is_empty() {
+            spans.push(Span::styled(after.to_string(), text_style));
+        }
+    }
+    Line::from(spans)
 }
 
 pub(super) fn panel_block<'a>(title: &'a str, active: bool, app: &App) -> Block<'a> {

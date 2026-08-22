@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::types::{Panel, SidebarItem};
 
 use super::art_window::render_art_window;
-use super::panel_block;
+use super::{panel_block, render_search_box};
 
 pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let c = app.colors.clone();
@@ -38,7 +38,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(block, sidebar_area);
 
     let mut display_items: Vec<(usize, Line)> = Vec::new();
-    let mut search_boxes: Vec<(usize, String, String)> = Vec::new();
+    let mut search_boxes: Vec<(usize, String)> = Vec::new();
 
     for (i, item) in app.sidebar_list.items.iter().enumerate() {
         let is_selected = i == app.sidebar_list.index;
@@ -67,12 +67,11 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             if expanded && !section_key.is_empty() {
                 if let Some(search_section) = &app.sidebar_search_section {
                     if search_section.as_str() == section_key
-                        && (app.sidebar_search_mode || !app.sidebar_search_query.is_empty())
+                        && (app.sidebar_search_mode || !app.sidebar_search_input.is_empty())
                     {
                         search_boxes.push((
                             display_items.len() + 1,
                             section_key.to_string(),
-                            app.sidebar_search_query.clone(),
                         ));
                     }
                 }
@@ -89,7 +88,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut selected_display_line = 0usize;
     let mut current_line = 0usize;
     for (display_idx, (original_idx, _)) in display_items.iter().enumerate() {
-        if search_boxes.iter().any(|(pos, _, _)| *pos == display_idx) {
+        if search_boxes.iter().any(|(pos, _)| *pos == display_idx) {
             current_line += 3;
         }
         if *original_idx == app.sidebar_list.index {
@@ -117,7 +116,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut current_display_line = 0usize;
 
     for (display_idx, (original_idx, line)) in display_items.iter().enumerate() {
-        if let Some((_, section, query)) = search_boxes.iter().find(|(pos, _, _)| *pos == display_idx) {
+        if let Some((_, section)) = search_boxes.iter().find(|(pos, _)| *pos == display_idx) {
             if current_display_line + 3 <= app.sidebar_list.offset {
                 current_display_line += 3;
                 continue;
@@ -132,7 +131,7 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                         width: inner.width,
                         height: (3 - skip_lines).min((visible_height - y_offset as usize).min(3)) as u16,
                     };
-                    render_sidebar_search_box(f, app, search_area, section, query);
+                    render_sidebar_search_box(f, app, search_area, section);
                     y_offset += search_area.height;
                 }
             }
@@ -172,74 +171,16 @@ pub(super) fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str, query: &str) {
-    let c = &app.colors;
-    let search_active = app.sidebar_search_mode && app.sidebar_search_section.as_deref() == Some(section);
-    let has_query = !query.is_empty();
-
-    let box_bg = if search_active { c.overlay_bg } else { c.background };
-    let box_border_color = if search_active {
-        c.accent
-    } else if has_query {
-        c.accent2
-    } else {
-        c.dim
-    };
-
-    let result_count = crate::types::SidebarSection::from_key(section)
-        .map(|s| app.sidebar.get(s).visible_len())
-        .unwrap_or(0);
-
-    let result_hint = if has_query {
-        format!(
-            "  {} result{}",
-            result_count,
-            if result_count == 1 { "" } else { "s" }
+fn render_sidebar_search_box(f: &mut Frame, app: &App, area: Rect, section: &str) {
+    let active = app.sidebar_search_mode && app.sidebar_search_section.as_deref() == Some(section);
+    let result_count = if !app.sidebar_search_input.is_empty() {
+        Some(
+            crate::types::SidebarSection::from_key(section)
+                .map(|s| app.sidebar.get(s).visible_len())
+                .unwrap_or(0),
         )
     } else {
-        String::new()
+        None
     };
-
-    let box_title = if search_active {
-        Span::styled(" search ", c.highlight_bold_style())
-    } else if has_query {
-        Span::styled(format!(" search{} ", result_hint), c.accent_style())
-    } else {
-        Span::styled(" search ", c.dim_style())
-    };
-
-    let search_block = Block::default()
-        .title(box_title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(box_border_color))
-        .style(Style::default().bg(box_bg));
-
-    let search_inner = search_block.inner(area);
-    f.render_widget(search_block, area);
-
-    let content = if search_active {
-        Line::from(vec![
-            Span::styled(
-                query.to_string(),
-                c.highlight_bold_style().bg(box_bg),
-            ),
-            Span::styled("█", c.accent_style().bg(box_bg)),
-        ])
-    } else if has_query {
-        Line::from(Span::styled(
-            query.to_string(),
-            c.border_style().bg(box_bg),
-        ))
-    } else {
-        Line::from(Span::styled(
-            "press / to search…",
-            c.dim_style().bg(box_bg),
-        ))
-    };
-
-    f.render_widget(
-        Paragraph::new(content).style(Style::default().bg(box_bg)),
-        search_inner,
-    );
+    render_search_box(f, area, &app.sidebar_search_input, active, result_count, &app.colors);
 }

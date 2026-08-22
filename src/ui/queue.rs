@@ -17,18 +17,18 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
     let active = app.active_panel == Panel::Queue;
     use crate::keybindings::Action;
     let jump_key = app.keybindings.keys_for_action(Action::JumpToQueue);
-    let total_duration: i64 = app.player.queue.iter().map(|t| t.duration).sum();
+    let total_duration: i64 = app.queue.items.iter().map(|t| t.duration).sum();
     let title = format!(
         "Queue [{}] ({} tracks, {})",
         jump_key,
-        app.player.queue.len(),
+        app.queue.len(),
         crate::types::format_duration(total_duration)
     );
     let block = panel_block(&title, active, app);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if app.player.queue.is_empty() {
+    if app.queue.is_empty() {
         let add_key = app.keybindings.keys_for_action(Action::AddToQueue);
         let add_all_key = app.keybindings.keys_for_action(Action::AddAllToQueue);
         let empty = Paragraph::new(format!(
@@ -44,15 +44,15 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
 
     let w = inner.width as usize;
     let items: Vec<ListItem> = app
-        .player
         .queue
+        .items
         .iter()
         .enumerate()
         .map(|(i, track)| {
             let is_playing =
-                i == app.player.queue_index && app.player.state != PlayerState::Stopped;
-            let is_selected = i == app.queue_index;
-            let is_in_multiselect = app.queue_selected.contains(&i);
+                i == app.player.playing_index && app.player.state != PlayerState::Stopped;
+            let is_selected = i == app.queue.index;
+            let is_in_multiselect = app.queue.selected.contains(&i);
 
             let row = list_row_style(c, is_selected, is_in_multiselect, is_playing, active, &app.player.state);
             let style = row.to_style();
@@ -79,7 +79,7 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let mut state = ListState::default();
-    state.select(Some(app.queue_index));
+    state.select(Some(app.queue.index));
 
     let list = List::new(items)
         .style(c.block_style())

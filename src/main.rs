@@ -9,6 +9,7 @@ mod mpris;
 mod player;
 mod playlist;
 mod state;
+mod text_input;
 mod types;
 mod ui;
 mod lyrics;
@@ -106,12 +107,14 @@ async fn run_tui() -> Result<()> {
                         app.player.stop();
                     }
                     MprisCommand::Next => {
-                        let _ = app.player.next();
+                        let _ = app.player.next(&app.queue.items);
+                        app.queue.index = app.player.playing_index;
                         app.refresh_album_art();
                         app.persist_queue();
                     }
                     MprisCommand::Previous => {
-                        let _ = app.player.prev();
+                        let _ = app.player.prev(&app.queue.items);
+                        app.queue.index = app.player.playing_index;
                         app.refresh_album_art();
                         app.persist_queue();
                     }
@@ -124,10 +127,16 @@ async fn run_tui() -> Result<()> {
             .unwrap_or_else(|| Duration::from_secs(0));
 
         if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if app.handle_key(key) {
-                    break;
+            match event::read()? {
+                Event::Key(key) => {
+                    if app.handle_key(key) {
+                        break;
+                    }
                 }
+                Event::Resize(_, _) => {
+                    app.art.on_resize();
+                }
+                _ => {}
             }
         }
 
