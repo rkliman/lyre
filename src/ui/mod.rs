@@ -21,7 +21,7 @@ mod track_info;
 mod tracklist;
 
 use lyrics::render_lyrics;
-use overlays::{render_add_to_playlist_overlay, render_global_search_overlay, render_new_playlist_overlay, render_setup_database_overlay, render_help};
+use overlays::{render_add_to_playlist_overlay, render_global_search_overlay, render_new_playlist_overlay, render_setup_database_overlay, render_help, render_settings_overlay};
 use player::render_player;
 use queue::render_queue;
 use sidebar::render_sidebar;
@@ -209,6 +209,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
             active_field,
         } => render_setup_database_overlay(f, area, app, &database_name, &music_directory, &active_field),
         Overlay::GlobalSearch => render_global_search_overlay(f, area, app),
+        Overlay::Settings { theme_index, original_theme } => {
+            render_settings_overlay(f, area, app, theme_index, &original_theme)
+        }
         Overlay::None => {}
     }
 }

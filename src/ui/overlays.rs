@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::colors::{theme_swatch, THEME_NAMES};
 use crate::types::{AddToPlaylistItem, GlobalSearchResult, SetupField};
 use super::{overlay_block, render_text_input_line};
 
@@ -417,6 +418,121 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut 
             footer_area,
         );
     }
+}
+
+pub(super) fn render_settings_overlay(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    theme_index: usize,
+    original_theme: &Option<String>,
+) {
+    let c = &app.colors;
+    let theme_count = THEME_NAMES.len();
+
+    // Width: 2 cursor + 2 radio + 1 space + 22 name + 2 gap + 5×"██" + 4 spaces between = 43
+    // Plus 1-char side padding each side inside block = 45 inner, 47 with borders → round to 52
+    let w = 52u16.min(area.width);
+    // Height: 2 border + 2 header ("Theme\n────") + items + 1 footer
+    let h = (theme_count as u16 + 5).min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup = Rect { x, y, width: w, height: h };
+
+    f.render_widget(Clear, popup);
+    let block = overlay_block(" Settings ", app);
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    // Header: "Theme" title + divider
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled("Theme", c.accent_bold_style())),
+            Line::from(Span::styled(
+                "─".repeat(inner.width as usize),
+                c.dim_style(),
+            )),
+        ])
+        .style(Style::default().bg(c.overlay_bg)),
+        layout[0],
+    );
+
+    // Theme list with scrolling
+    let list_area = layout[1];
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(c.overlay_bg)),
+        list_area,
+    );
+    let visible_h = list_area.height as usize;
+    let offset = theme_index.saturating_sub(visible_h.saturating_sub(1));
+
+    for (row_i, i) in (offset..(offset + visible_h).min(theme_count)).enumerate() {
+        let name = THEME_NAMES[i];
+        let is_cursor = i == theme_index;
+        let is_active = match original_theme {
+            None => name == "default",
+            Some(t) => name == t.as_str(),
+        };
+
+        let display = if name == "default" { "(default)" } else { name };
+        let name_padded = format!("{:<22}", display);
+        let cursor_str = if is_cursor { "▶ " } else { "  " };
+        let radio_str = if is_active { "●" } else { "○" };
+        let swatches = theme_swatch(name);
+
+        let bg = if is_cursor { c.selection_bg } else { c.overlay_bg };
+        let name_style = if is_cursor { c.selected_style() } else { c.normal_style().bg(bg) };
+        let radio_style = if is_active {
+            Style::default().fg(c.accent).bg(bg)
+        } else {
+            Style::default().fg(c.dim).bg(bg)
+        };
+
+        let mut spans = vec![
+            Span::styled(cursor_str, Style::default().fg(c.accent).bg(bg)),
+            Span::styled(radio_str, radio_style),
+            Span::styled(" ", Style::default().bg(bg)),
+            Span::styled(name_padded, name_style),
+            Span::styled(" ", Style::default().bg(bg)),
+        ];
+        for (j, &color) in swatches.iter().enumerate() {
+            spans.push(Span::styled("██", Style::default().fg(color).bg(bg)));
+            if j + 1 < swatches.len() {
+                spans.push(Span::styled(" ", Style::default().bg(bg)));
+            }
+        }
+
+        let line_area = Rect {
+            x: list_area.x,
+            y: list_area.y + row_i as u16,
+            width: list_area.width,
+            height: 1,
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(bg)),
+            line_area,
+        );
+    }
+
+    // Footer
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            "↑/↓ preview · Enter save · Esc cancel",
+            c.dim_style(),
+        ))
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(c.overlay_bg)),
+        layout[2],
+    );
 }
 
 pub(super) fn render_help(f: &mut Frame, area: Rect, app: &mut App) {

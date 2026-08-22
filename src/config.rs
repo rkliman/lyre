@@ -1,4 +1,3 @@
-use crate::colors::default_colors;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -32,38 +31,41 @@ pub struct FilesConfig {
     pub ignore: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub(crate) struct UiColorsConfig {
-    #[serde(default = "default_foreground")]
-    pub foreground: String,
-    #[serde(default = "default_background")]
-    pub background: String,
-    #[serde(default = "default_accent")]
-    pub accent: String,
-    #[serde(default = "default_accent2")]
-    pub accent2: String,
-    #[serde(default = "default_dim")]
-    pub dim: String,
-    #[serde(default = "default_highlight")]
-    pub highlight: String,
-    #[serde(default = "default_playing")]
-    pub playing: String,
-    #[serde(default = "default_header_bg")]
-    pub header_bg: String,
-    #[serde(default = "default_selection_bg")]
-    pub selection_bg: String,
-    #[serde(default = "default_overlay_bg")]
-    pub overlay_bg: String,
-    #[serde(default = "default_gauge_bg")]
-    pub gauge_bg: String,
-    #[serde(default = "default_art_bg")]
-    pub art_bg: String,
-    #[serde(default = "default_art_border")]
-    pub art_border: String,
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(default)]
+pub struct UiColorsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dim: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gauge_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub art_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub art_border: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UiConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
     #[serde(default)]
     pub colors: UiColorsConfig,
 }
@@ -87,59 +89,6 @@ fn default_database_name() -> String {
 
 fn default_music_directory() -> String {
     DEFAULT_MUSIC_DIR.to_string()
-}
-
-// Default functions for UiColorsConfig
-fn default_foreground() -> String {
-    default_colors::FOREGROUND.to_string()
-}
-
-fn default_background() -> String {
-    default_colors::BACKGROUND.to_string()
-}
-
-fn default_accent() -> String {
-    default_colors::ACCENT.to_string()
-}
-
-fn default_accent2() -> String {
-    default_colors::ACCENT2.to_string()
-}
-
-fn default_dim() -> String {
-    default_colors::DIM.to_string()
-}
-
-fn default_highlight() -> String {
-    default_colors::HIGHLIGHT.to_string()
-}
-
-fn default_playing() -> String {
-    default_colors::PLAYING.to_string()
-}
-
-fn default_header_bg() -> String {
-    default_colors::HEADER_BG.to_string()
-}
-
-fn default_selection_bg() -> String {
-    default_colors::SELECTION_BG.to_string()
-}
-
-fn default_overlay_bg() -> String {
-    default_colors::OVERLAY_BG.to_string()
-}
-
-fn default_gauge_bg() -> String {
-    default_colors::GAUGE_BG.to_string()
-}
-
-fn default_art_bg() -> String {
-    default_colors::ART_BG.to_string()
-}
-
-fn default_art_border() -> String {
-    default_colors::ART_BORDER.to_string()
 }
 
 fn default_replace() -> Option<HashMap<String, String>> {
@@ -173,29 +122,10 @@ impl Default for FilesConfig {
     }
 }
 
-impl Default for UiColorsConfig {
-    fn default() -> Self {
-        Self {
-            foreground: default_foreground(),
-            background: default_background(),
-            accent: default_accent(),
-            accent2: default_accent2(),
-            dim: default_dim(),
-            highlight: default_highlight(),
-            playing: default_playing(),
-            header_bg: default_header_bg(),
-            selection_bg: default_selection_bg(),
-            overlay_bg: default_overlay_bg(),
-            gauge_bg: default_gauge_bg(),
-            art_bg: default_art_bg(),
-            art_border: default_art_border(),
-        }
-    }
-}
-
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
+            theme: None,
             colors: UiColorsConfig::default(),
         }
     }

@@ -9,6 +9,14 @@ database_name = "~/.local/share/lyre/music.db"
 # Path to your music directory
 music_directory = "~/Music"
 
+[ui]
+# Theme preset — sets all colors at once.
+# Individual [ui.colors] values override the preset on a per-field basis.
+# Available presets:
+#   catppuccin, catppuccin-mocha, catppuccin-latte, catppuccin-frappe, catppuccin-macchiato
+#   nord, dracula, gruvbox, gruvbox-dark, rose-pine
+# theme = "catppuccin-mocha"
+
 [ui.colors]
 # Color scheme - specify as hex "#RRGGBB" or comma-separated "R, G, B"
 foreground = "#dcd7cd"      # Main text color

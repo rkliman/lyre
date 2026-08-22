@@ -40,11 +40,15 @@ pub enum LyricsFetchResult {
     Error(String),
 }
 use crate::util::{expand_tilde, pad_to, truncate_field, wrap_field, FAVORITE_ICON};
-use crate::colors::ColorScheme;
-use crate::config::{load_config, save_config, Config};
+use crate::colors::{ColorScheme, THEME_NAMES};
+use crate::config::{load_config, save_config, Config, UiColorsConfig};
 
 pub struct App {
     pub colors: ColorScheme,
+    /// The currently applied theme name (None = built-in default).
+    pub active_theme: Option<String>,
+    /// User's custom per-field color overrides from config (applied on top of any preset).
+    pub ui_colors_config: UiColorsConfig,
     pub keybindings: Keybindings,
     pub all_tracks: Vec<Arc<Track>>,
     pub track_list: NavigableList<Arc<Track>>,
@@ -121,7 +125,9 @@ impl App {
     }
 
     fn new_with_config(config: Config) -> Result<Self> {
-        let colors = ColorScheme::from_config(&config.ui.colors);
+        let active_theme = config.ui.theme.clone();
+        let ui_colors_config = config.ui.colors.clone();
+        let colors = ColorScheme::from_config(&ui_colors_config, active_theme.as_deref());
         let music_dir = expand_tilde(&config.files.music_directory);
         let db_path = expand_tilde(&config.files.database_name);
         let db_path_exists = Path::new(&db_path).exists();
@@ -135,6 +141,8 @@ impl App {
         if !db_path_exists {
             return Self::new_empty(
                 colors,
+                active_theme,
+                ui_colors_config,
                 music_dir,
                 db_path,
                 Some("No database found. Enter a music directory and database file path to continue.".to_string()),
@@ -228,6 +236,8 @@ impl App {
 
                 let mut app = Self {
                     colors,
+                    active_theme,
+                    ui_colors_config,
                     keybindings,
                     all_tracks,
                     track_list: NavigableList::new(filtered_tracks),
@@ -298,6 +308,8 @@ impl App {
             }
             Err(err) => Self::new_empty(
                 colors,
+                active_theme,
+                ui_colors_config,
                 music_dir,
                 db_path,
                 Some(format!("Failed to open database: {}", err)),
@@ -308,6 +320,8 @@ impl App {
 
     fn new_empty(
         colors: ColorScheme,
+        active_theme: Option<String>,
+        ui_colors_config: UiColorsConfig,
         music_dir: String,
         db_path: String,
         status_message: Option<String>,
@@ -323,6 +337,8 @@ impl App {
 
         let mut app = Self {
             colors,
+            active_theme,
+            ui_colors_config,
             keybindings,
             all_tracks: Vec::new(),
             track_list: NavigableList::default(),
@@ -938,6 +954,17 @@ impl App {
                 self.global_search.items.clear();
             }
 
+            Action::OpenSettings => {
+                let original = self.active_theme.clone();
+                let idx = THEME_NAMES.iter().position(|&n| {
+                    match &original {
+                        None => n == "default",
+                        Some(t) => n == t.as_str(),
+                    }
+                }).unwrap_or(0);
+                self.overlay = Overlay::Settings { theme_index: idx, original_theme: original };
+            }
+
             Action::InfoClose => {
                 self.show_info = false;
                 self.info_editing = false;
@@ -951,6 +978,10 @@ impl App {
             // Overlay
             Action::OverlayConfirm => self.handle_overlay_confirm(),
             Action::OverlayCancel => {
+                if let Overlay::Settings { original_theme, .. } = self.overlay.clone() {
+                    self.active_theme = original_theme.clone();
+                    self.colors = ColorScheme::from_config(&self.ui_colors_config, original_theme.as_deref());
+                }
                 self.overlay = Overlay::None;
             }
             Action::OverlayChar(c) => self.handle_overlay_char(c),
@@ -1055,6 +1086,15 @@ impl App {
                     }
                 }
             }
+            Overlay::Settings { theme_index, .. } => {
+                let name = THEME_NAMES[*theme_index];
+                let theme_opt = if name == "default" { None } else { Some(name.to_string()) };
+                self.active_theme = theme_opt.clone();
+                let mut config = load_config();
+                config.ui.theme = theme_opt;
+                let _ = save_config(&config);
+                self.overlay = Overlay::None;
+            }
             Overlay::GlobalSearch | Overlay::None => {}
         }
     }
@@ -1083,7 +1123,7 @@ impl App {
                     active_field: active_field.clone(),
                 };
             }
-            Overlay::AddToPlaylist { .. } => {}
+            Overlay::AddToPlaylist { .. } | Overlay::Settings { .. } => {}
             Overlay::GlobalSearch | Overlay::None => {}
         }
     }
@@ -1116,7 +1156,7 @@ impl App {
                     active_field: active_field.clone(),
                 };
             }
-            Overlay::AddToPlaylist { .. } => {}
+            Overlay::AddToPlaylist { .. } | Overlay::Settings { .. } => {}
             Overlay::GlobalSearch | Overlay::None => {}
         }
     }
@@ -1142,6 +1182,18 @@ impl App {
             Overlay::AddToPlaylist { .. } => {
                 let key = if delta < 0 { KeyCode::Up } else { KeyCode::Down };
                 self.add_to_playlist.navigate(key);
+            }
+            Overlay::Settings { theme_index, original_theme } => {
+                let n = THEME_NAMES.len() as i64;
+                let new_idx = ((*theme_index as i64 + delta as i64).rem_euclid(n)) as usize;
+                let name = THEME_NAMES[new_idx];
+                let theme = if name == "default" { None } else { Some(name) };
+                self.active_theme = theme.map(str::to_string);
+                self.colors = ColorScheme::from_config(&self.ui_colors_config, theme);
+                self.overlay = Overlay::Settings {
+                    theme_index: new_idx,
+                    original_theme: original_theme.clone(),
+                };
             }
             Overlay::GlobalSearch | Overlay::None => {}
         }

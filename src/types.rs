@@ -451,6 +451,11 @@ pub enum Overlay {
     },
     /// Global search overlay for finding songs, albums, artists, playlists, genres.
     GlobalSearch,
+    /// Theme / settings picker.
+    Settings {
+        theme_index: usize,
+        original_theme: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

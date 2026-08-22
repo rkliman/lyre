@@ -23,6 +23,7 @@ pub enum Action {
     NewPlaylist, AddToPlaylist, RemoveFromPlaylist,
     MoveTrackUp, MoveTrackDown,
 
+    OpenSettings,
     SearchExit,
     HelpScroll(i32), HelpClose,
     LyricsReload,
@@ -141,6 +142,7 @@ impl Keybindings {
             kb!(vec![Char('J')], Action::MoveTrackDown, Panel(Panel::Queue)),
 
             // Other
+            kb!(vec![Char('T')], Action::OpenSettings, Global),
             kb!(vec![Char('?')], Action::ToggleHelp, Global),
             kb!(vec![Char('q')], Action::Quit, Global),
             kb!(vec![Char('r')], Action::LyricsReload, Panel(Panel::Lyrics)),
@@ -296,6 +298,7 @@ impl Keybindings {
                 (kctx(MoveTrackDown, "in playlist"), "Move selected track down"),
             ]),
             ("Other", vec![
+                (k(OpenSettings), "Open settings (theme picker)"),
                 (k(ToggleHelp), "Toggle this help overlay"),
                 (k(Quit), "Quit"),
             ]),
