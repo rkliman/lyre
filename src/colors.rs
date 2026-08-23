@@ -167,6 +167,448 @@ const ROSE_PINE: PresetColors = PresetColors {
     art_border:   "#1f1d2e", // surface
 };
 
+// Rosé Pine Dawn — light variant
+const ROSE_PINE_DAWN: PresetColors = PresetColors {
+    foreground:   "#464261", // text
+    background:   "#faf4ed", // base
+    accent:       "#b4637a", // love
+    accent2:      "#d7827e", // rose
+    dim:          "#9893a5", // muted
+    highlight:    "#ea9d34", // gold
+    playing:      "#56949f", // foam
+    header_bg:    "#fffaf3", // surface
+    selection_bg: "#f2e9e1", // overlay
+    overlay_bg:   "#faf4ed",
+    gauge_bg:     "#f2e9e1",
+    art_bg:       "#faf4ed",
+    art_border:   "#f2e9e1",
+};
+
+// Tokyo Night — https://github.com/folke/tokyonight.nvim
+const TOKYO_NIGHT: PresetColors = PresetColors {
+    foreground:   "#c0caf5",
+    background:   "#1a1b26",
+    accent:       "#7aa2f7", // blue
+    accent2:      "#bb9af7", // purple
+    dim:          "#565f89",
+    highlight:    "#e0af68", // yellow
+    playing:      "#9ece6a", // green
+    header_bg:    "#16161e",
+    selection_bg: "#283457",
+    overlay_bg:   "#13131a",
+    gauge_bg:     "#292e42",
+    art_bg:       "#1a1b26",
+    art_border:   "#292e42",
+};
+
+// Tokyo Night Storm — slightly lighter Tokyo Night variant
+const TOKYO_NIGHT_STORM: PresetColors = PresetColors {
+    foreground:   "#c0caf5",
+    background:   "#24283b",
+    accent:       "#7aa2f7",
+    accent2:      "#bb9af7",
+    dim:          "#565f89",
+    highlight:    "#e0af68",
+    playing:      "#9ece6a",
+    header_bg:    "#1f2335",
+    selection_bg: "#2e3c64",
+    overlay_bg:   "#1a1b2e",
+    gauge_bg:     "#3b4261",
+    art_bg:       "#24283b",
+    art_border:   "#3b4261",
+};
+
+// Tokyo Night Light
+const TOKYO_NIGHT_LIGHT: PresetColors = PresetColors {
+    foreground:   "#3760bf",
+    background:   "#e1e2e7",
+    accent:       "#2e7de9", // blue
+    accent2:      "#9854f1", // purple
+    dim:          "#848cb5", // comment
+    highlight:    "#8c6c3e",
+    playing:      "#587539", // green
+    header_bg:    "#d0d5e3", // bg_dark
+    selection_bg: "#c4c8da", // bg_highlight
+    overlay_bg:   "#cbccd6",
+    gauge_bg:     "#c4c8da",
+    art_bg:       "#e1e2e7",
+    art_border:   "#c4c8da",
+};
+
+// Solarized Dark — https://ethanschoonover.com/solarized
+const SOLARIZED_DARK: PresetColors = PresetColors {
+    foreground:   "#839496", // base0
+    background:   "#002b36", // base03
+    accent:       "#268bd2", // blue
+    accent2:      "#2aa198", // cyan
+    dim:          "#586e75", // base01
+    highlight:    "#b58900", // yellow
+    playing:      "#859900", // green
+    header_bg:    "#073642", // base02
+    selection_bg: "#073642",
+    overlay_bg:   "#001f27",
+    gauge_bg:     "#073642",
+    art_bg:       "#002b36",
+    art_border:   "#073642",
+};
+
+// Solarized Light
+const SOLARIZED_LIGHT: PresetColors = PresetColors {
+    foreground:   "#657b83", // base00
+    background:   "#fdf6e3", // base3
+    accent:       "#268bd2", // blue
+    accent2:      "#2aa198", // cyan
+    dim:          "#93a1a1", // base1
+    highlight:    "#b58900", // yellow
+    playing:      "#859900", // green
+    header_bg:    "#eee8d5", // base2
+    selection_bg: "#eee8d5",
+    overlay_bg:   "#f5f0e4",
+    gauge_bg:     "#eee8d5",
+    art_bg:       "#fdf6e3",
+    art_border:   "#eee8d5",
+};
+
+// One Dark — https://github.com/atom/atom/tree/master/packages/one-dark-syntax
+const ONE_DARK: PresetColors = PresetColors {
+    foreground:   "#abb2bf",
+    background:   "#282c34",
+    accent:       "#61afef", // blue
+    accent2:      "#c678dd", // purple
+    dim:          "#5c6370", // comment
+    highlight:    "#e5c07b", // yellow
+    playing:      "#98c379", // green
+    header_bg:    "#21252b",
+    selection_bg: "#3e4451",
+    overlay_bg:   "#1d2026",
+    gauge_bg:     "#31353f",
+    art_bg:       "#282c34",
+    art_border:   "#3e4451",
+};
+
+// Monokai — https://monokai.pro
+const MONOKAI: PresetColors = PresetColors {
+    foreground:   "#f8f8f2",
+    background:   "#272822",
+    accent:       "#f92672", // pink/red — Monokai's signature
+    accent2:      "#ae81ff", // purple
+    dim:          "#75715e", // comment
+    highlight:    "#e6db74", // yellow
+    playing:      "#a6e22e", // green
+    header_bg:    "#1e1f1c",
+    selection_bg: "#49483e",
+    overlay_bg:   "#1a1b19",
+    gauge_bg:     "#3c3d37",
+    art_bg:       "#272822",
+    art_border:   "#3c3d37",
+};
+
+// Gruvbox Light — https://github.com/morhetz/gruvbox
+const GRUVBOX_LIGHT: PresetColors = PresetColors {
+    foreground:   "#3c3836", // dark1
+    background:   "#fbf1c7", // light0
+    accent:       "#af3a03", // orange dark
+    accent2:      "#b57614", // yellow dark
+    dim:          "#928374", // gray
+    highlight:    "#b57614",
+    playing:      "#79740e", // green dark
+    header_bg:    "#f2e5bc", // light1
+    selection_bg: "#d5c4a1", // light2
+    overlay_bg:   "#f9f5d7", // light0 hard
+    gauge_bg:     "#ebdbb2", // light3
+    art_bg:       "#fbf1c7",
+    art_border:   "#d5c4a1",
+};
+
+// Kanagawa Wave — https://github.com/rebelot/kanagawa.nvim
+const KANAGAWA: PresetColors = PresetColors {
+    foreground:   "#dcd7ba", // fujiWhite
+    background:   "#1f1f28", // sumiInk0
+    accent:       "#7e9cd8", // crystalBlue
+    accent2:      "#957fb8", // oniViolet
+    dim:          "#727169", // fujiGray
+    highlight:    "#e6c384", // carpYellow
+    playing:      "#98bb6c", // springGreen
+    header_bg:    "#16161d",
+    selection_bg: "#2d4f67", // waveBlue1
+    overlay_bg:   "#16161d",
+    gauge_bg:     "#223249",
+    art_bg:       "#1f1f28",
+    art_border:   "#2a2a37",
+};
+
+// Everforest Dark — https://github.com/sainnhe/everforest
+const EVERFOREST: PresetColors = PresetColors {
+    foreground:   "#d3c6aa",
+    background:   "#2d353b",
+    accent:       "#7fbbb3", // aqua
+    accent2:      "#d699b6", // purple
+    dim:          "#859289",
+    highlight:    "#dbbc7f", // yellow
+    playing:      "#a7c080", // green
+    header_bg:    "#343f44", // bg1
+    selection_bg: "#3d484d", // bg2
+    overlay_bg:   "#232a2e", // hard bg
+    gauge_bg:     "#475258", // bg3
+    art_bg:       "#2d353b",
+    art_border:   "#475258",
+};
+
+// Ayu Dark — https://github.com/ayu-theme/ayu-vim
+const AYU_DARK: PresetColors = PresetColors {
+    foreground:   "#e6e1cf",
+    background:   "#0f1419",
+    accent:       "#ffb454", // function/orange
+    accent2:      "#36a3d9", // tag/blue
+    dim:          "#5c6773", // comment
+    highlight:    "#e6b673", // special/yellow
+    playing:      "#b8cc52", // string/green
+    header_bg:    "#14191f", // panel
+    selection_bg: "#253340", // selection
+    overlay_bg:   "#14191f",
+    gauge_bg:     "#151a1e", // line
+    art_bg:       "#0f1419",
+    art_border:   "#2d3640", // guide
+};
+
+// Ayu Mirage
+const AYU_MIRAGE: PresetColors = PresetColors {
+    foreground:   "#d9d7ce",
+    background:   "#212733",
+    accent:       "#ffd57f", // function/orange
+    accent2:      "#5ccfe6", // tag/blue
+    dim:          "#5c6773", // comment
+    highlight:    "#ffc44c", // special/yellow
+    playing:      "#bae67e", // string/green
+    header_bg:    "#272d38", // panel
+    selection_bg: "#343f4c", // selection
+    overlay_bg:   "#161b22",
+    gauge_bg:     "#242b38", // line
+    art_bg:       "#212733",
+    art_border:   "#3d4751", // guide
+};
+
+// Tomorrow Night — https://github.com/chriskempson/tomorrow-theme
+const TOMORROW_NIGHT: PresetColors = PresetColors {
+    foreground:   "#c5c8c6",
+    background:   "#1d1f21",
+    accent:       "#81a2be", // blue
+    accent2:      "#b294bb", // purple
+    dim:          "#969896",
+    highlight:    "#f0c674", // yellow
+    playing:      "#b5bd68", // green
+    header_bg:    "#282a2e",
+    selection_bg: "#373b41",
+    overlay_bg:   "#14161a",
+    gauge_bg:     "#282a2e",
+    art_bg:       "#1d1f21",
+    art_border:   "#373b41",
+};
+
+// Oxocarbon — IBM Carbon design system, https://github.com/nyoom-engineering/oxocarbon.nvim
+const OXOCARBON: PresetColors = PresetColors {
+    foreground:   "#f2f4f8",
+    background:   "#161616",
+    accent:       "#78a9ff", // blue
+    accent2:      "#be95ff", // purple
+    dim:          "#5c5c5c", // base03 (30% blend)
+    highlight:    "#08bdba", // base07 — teal
+    playing:      "#42be65", // base13 — green
+    header_bg:    "#2a2a2a", // base01 (8.5% blend)
+    selection_bg: "#404040", // base02 (18% blend)
+    overlay_bg:   "#131313", // blend value
+    gauge_bg:     "#2a2a2a",
+    art_bg:       "#161616",
+    art_border:   "#393939",
+};
+
+// Nightfox — https://github.com/EdenEast/nightfox.nvim
+const NIGHTFOX: PresetColors = PresetColors {
+    foreground:   "#cdcecf",
+    background:   "#192330",
+    accent:       "#719cd6", // blue
+    accent2:      "#9d79d6", // purple
+    dim:          "#738091",
+    highlight:    "#dbc074", // yellow
+    playing:      "#81b29a", // green
+    header_bg:    "#131a24",
+    selection_bg: "#2b3b51",
+    overlay_bg:   "#131a24", // bg0
+    gauge_bg:     "#212e3f",
+    art_bg:       "#192330",
+    art_border:   "#2b3b51",
+};
+
+// Material Dark (Material Theme) — https://material-theme.site
+const MATERIAL_DARK: PresetColors = PresetColors {
+    foreground:   "#eeffff",
+    background:   "#263238",
+    accent:       "#89ddff", // cyan
+    accent2:      "#c792ea", // purple
+    dim:          "#546e7a",
+    highlight:    "#ffcb6b", // yellow
+    playing:      "#c3e88d", // green
+    header_bg:    "#1e272c",
+    selection_bg: "#314549",
+    overlay_bg:   "#1a2327",
+    gauge_bg:     "#2e3c43",
+    art_bg:       "#263238",
+    art_border:   "#314549",
+};
+
+// Synthwave '84 — https://github.com/robb0wen/synthwave-vscode
+const SYNTHWAVE84: PresetColors = PresetColors {
+    foreground:   "#ffffff",
+    background:   "#262335",
+    accent:       "#ff7edb", // hot pink
+    accent2:      "#03edf9", // neon cyan
+    dim:          "#848bbd", // comments
+    highlight:    "#fede5d", // neon yellow
+    playing:      "#72f1b8", // neon green
+    header_bg:    "#241b2e",
+    selection_bg: "#3d3b6e",
+    overlay_bg:   "#1a1631",
+    gauge_bg:     "#34294f",
+    art_bg:       "#262335",
+    art_border:   "#34294f",
+};
+
+// Cyberdream — https://github.com/scottmckendry/cyberdream.nvim
+const CYBERDREAM: PresetColors = PresetColors {
+    foreground:   "#ffffff",
+    background:   "#16181a",
+    accent:       "#ff5ea0", // pink
+    accent2:      "#ff5ef1", // magenta
+    dim:          "#7b8496", // grey
+    highlight:    "#f1ff5e", // neon yellow
+    playing:      "#5eff6c", // neon green
+    header_bg:    "#1e2124", // bg_alt
+    selection_bg: "#3c4048", // bg_highlight
+    overlay_bg:   "#111315",
+    gauge_bg:     "#1e2124",
+    art_bg:       "#16181a",
+    art_border:   "#3c4048",
+};
+
+// Horizon — https://github.com/ntk148v/vim-horizon
+const HORIZON: PresetColors = PresetColors {
+    foreground:   "#d5d8da",
+    background:   "#1c1e26",
+    accent:       "#e95678", // hot pink/red
+    accent2:      "#b877db", // purple
+    dim:          "#6c6f93", // comments
+    highlight:    "#fab795", // peach/orange
+    playing:      "#09f7a0", // neon green
+    header_bg:    "#17171b",
+    selection_bg: "#272c42",
+    overlay_bg:   "#17171b",
+    gauge_bg:     "#2e303e",
+    art_bg:       "#1c1e26",
+    art_border:   "#2e303e",
+};
+
+// Poimandres — https://github.com/olivercederborg/poimandres.nvim
+const POIMANDRES: PresetColors = PresetColors {
+    foreground:   "#e4f0fb", // text
+    background:   "#1b1e28", // background2
+    accent:       "#d0679d", // pink3
+    accent2:      "#5de4c7", // teal1
+    dim:          "#767c9d", // blueGray2
+    highlight:    "#fffac2", // yellow
+    playing:      "#5fb3a1", // teal2
+    header_bg:    "#171922", // background3
+    selection_bg: "#303340", // background1
+    overlay_bg:   "#141720",
+    gauge_bg:     "#303340",
+    art_bg:       "#1b1e28",
+    art_border:   "#303340",
+};
+
+// Fairy Floss — https://github.com/sailorhg/fairyfloss
+const FAIRY_FLOSS: PresetColors = PresetColors {
+    foreground:   "#f8f8f2",
+    background:   "#5a5475",
+    accent:       "#ffb8d1", // pink keywords
+    accent2:      "#c5a3ff", // lavender constants
+    dim:          "#a19bbb", // muted purple
+    highlight:    "#fff352", // bright yellow
+    playing:      "#c2ffdf", // mint green
+    header_bg:    "#4c4468",
+    selection_bg: "#6b618e",
+    overlay_bg:   "#3e3a54",
+    gauge_bg:     "#6b618e",
+    art_bg:       "#5a5475",
+    art_border:   "#6b618e",
+};
+
+// Girlypop Dark — original
+const GIRLYPOP_DARK: PresetColors = PresetColors {
+    foreground:   "#ffe0f0", // rosy white
+    background:   "#1a0818", // dark magenta-black
+    accent:       "#ff1493", // deep pink
+    accent2:      "#ff69b4", // hot pink / bubblegum
+    dim:          "#c24d82", // muted pink
+    highlight:    "#ff85c2", // bright bubblegum
+    playing:      "#ff006e", // electric magenta — stands out
+    header_bg:    "#2a0a20",
+    selection_bg: "#4a1535",
+    overlay_bg:   "#120614",
+    gauge_bg:     "#3a1030",
+    art_bg:       "#1a0818",
+    art_border:   "#4a1535",
+};
+
+// Girlypop Light
+const GIRLYPOP_LIGHT: PresetColors = PresetColors {
+    foreground:   "#7a0040", // dark crimson-pink — readable on light
+    background:   "#fff0f8", // near-white with pink blush
+    accent:       "#ff1493", // deep pink
+    accent2:      "#cc0066", // darker hot pink
+    dim:          "#d4608a", // muted rose
+    highlight:    "#ff006e", // electric magenta
+    playing:      "#e60073", // vivid pink
+    header_bg:    "#ffd6ed",
+    selection_bg: "#ffb3d9",
+    overlay_bg:   "#ffe8f5",
+    gauge_bg:     "#ffb3d9",
+    art_bg:       "#fff0f8",
+    art_border:   "#ffb3d9",
+};
+
+// Mellow — https://github.com/mellow-theme/mellow.nvim
+const MELLOW: PresetColors = PresetColors {
+    foreground:   "#c9c7cd",
+    background:   "#161617",
+    accent:       "#ea83a5", // rose/pink (listed as "cyan" but is rose)
+    accent2:      "#e29eca", // magenta/pink
+    dim:          "#757581", // gray05
+    highlight:    "#e6b99d", // warm peach
+    playing:      "#90b99f", // green
+    header_bg:    "#131314", // bg_dark
+    selection_bg: "#2a2a2d", // gray02
+    overlay_bg:   "#18181a", // gray00
+    gauge_bg:     "#27272a",
+    art_bg:       "#161617",
+    art_border:   "#27272a",
+};
+
+// Palenight (Material Palenight) — https://github.com/drewtempelmeyer/palenight.vim
+const PALENIGHT: PresetColors = PresetColors {
+    foreground:   "#bfc7d5", // white
+    background:   "#292d3e", // black
+    accent:       "#c792ea", // purple
+    accent2:      "#82b1ff", // blue
+    dim:          "#697098", // comment_grey
+    highlight:    "#ffcb6b", // yellow
+    playing:      "#c3e88d", // green
+    header_bg:    "#252837",
+    selection_bg: "#3e4452", // visual_grey
+    overlay_bg:   "#1e2130",
+    gauge_bg:     "#32374d",
+    art_bg:       "#292d3e",
+    art_border:   "#34394f",
+};
+
 /// All available theme preset names. Index 0 ("default") means no preset.
 pub const THEME_NAMES: &[&str] = &[
     "default",
@@ -177,7 +619,33 @@ pub const THEME_NAMES: &[&str] = &[
     "nord",
     "dracula",
     "gruvbox",
+    "gruvbox-light",
     "rose-pine",
+    "rose-pine-dawn",
+    "tokyo-night",
+    "tokyo-night-storm",
+    "tokyo-night-light",
+    "solarized-dark",
+    "solarized-light",
+    "one-dark",
+    "monokai",
+    "kanagawa",
+    "everforest",
+    "ayu-dark",
+    "ayu-mirage",
+    "tomorrow-night",
+    "oxocarbon",
+    "nightfox",
+    "material-dark",
+    "palenight",
+    "synthwave84",
+    "cyberdream",
+    "horizon",
+    "poimandres",
+    "fairy-floss",
+    "mellow",
+    "girlypop-dark",
+    "girlypop-light",
 ];
 
 /// Returns [accent, highlight, playing, accent2, dim] swatches for a theme.
@@ -203,15 +671,41 @@ pub fn theme_swatch(name: &str) -> [Color; 5] {
 
 fn get_preset(name: &str) -> Option<&'static PresetColors> {
     match name.to_lowercase().as_str() {
-        "catppuccin" | "catppuccin-mocha" => Some(&CATPPUCCIN_MOCHA),
-        "catppuccin-latte"                => Some(&CATPPUCCIN_LATTE),
-        "catppuccin-frappe"               => Some(&CATPPUCCIN_FRAPPE),
-        "catppuccin-macchiato"            => Some(&CATPPUCCIN_MACCHIATO),
-        "nord"                            => Some(&NORD),
-        "dracula"                         => Some(&DRACULA),
-        "gruvbox" | "gruvbox-dark"        => Some(&GRUVBOX_DARK),
-        "rose-pine" | "rose-pine-main"    => Some(&ROSE_PINE),
-        _                                 => None,
+        "catppuccin" | "catppuccin-mocha"    => Some(&CATPPUCCIN_MOCHA),
+        "catppuccin-latte"                   => Some(&CATPPUCCIN_LATTE),
+        "catppuccin-frappe"                  => Some(&CATPPUCCIN_FRAPPE),
+        "catppuccin-macchiato"               => Some(&CATPPUCCIN_MACCHIATO),
+        "nord"                               => Some(&NORD),
+        "dracula"                            => Some(&DRACULA),
+        "gruvbox" | "gruvbox-dark"           => Some(&GRUVBOX_DARK),
+        "gruvbox-light"                      => Some(&GRUVBOX_LIGHT),
+        "rose-pine" | "rose-pine-main"       => Some(&ROSE_PINE),
+        "rose-pine-dawn"                     => Some(&ROSE_PINE_DAWN),
+        "tokyo-night"                        => Some(&TOKYO_NIGHT),
+        "tokyo-night-storm"                  => Some(&TOKYO_NIGHT_STORM),
+        "tokyo-night-light"                  => Some(&TOKYO_NIGHT_LIGHT),
+        "solarized" | "solarized-dark"       => Some(&SOLARIZED_DARK),
+        "solarized-light"                    => Some(&SOLARIZED_LIGHT),
+        "one-dark" | "onedark"               => Some(&ONE_DARK),
+        "monokai"                            => Some(&MONOKAI),
+        "kanagawa" | "kanagawa-wave"         => Some(&KANAGAWA),
+        "everforest" | "everforest-dark"     => Some(&EVERFOREST),
+        "ayu" | "ayu-dark"                   => Some(&AYU_DARK),
+        "ayu-mirage"                         => Some(&AYU_MIRAGE),
+        "tomorrow-night"                     => Some(&TOMORROW_NIGHT),
+        "oxocarbon"                          => Some(&OXOCARBON),
+        "nightfox"                           => Some(&NIGHTFOX),
+        "material" | "material-dark"                    => Some(&MATERIAL_DARK),
+        "palenight" | "material-palenight"              => Some(&PALENIGHT),
+        "synthwave84" | "synthwave-84" | "synthwave"   => Some(&SYNTHWAVE84),
+        "cyberdream"                                    => Some(&CYBERDREAM),
+        "horizon"                                       => Some(&HORIZON),
+        "poimandres"                                    => Some(&POIMANDRES),
+        "fairy-floss" | "fairyfloss"                   => Some(&FAIRY_FLOSS),
+        "mellow"                                        => Some(&MELLOW),
+        "girlypop" | "girlypop-dark"                   => Some(&GIRLYPOP_DARK),
+        "girlypop-light"                               => Some(&GIRLYPOP_LIGHT),
+        _                                               => None,
     }
 }
 

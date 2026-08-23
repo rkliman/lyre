@@ -1281,12 +1281,18 @@ impl App {
                 self.settings_sections.navigate(key);
             }
 
-            // Up/Down in Theme content
+            // Up/Down/PageUp/PageDown in Theme content
             KeyCode::Up | KeyCode::Char('k') if !focus_left && section == Theme => {
                 go_prev_theme(self);
             }
             KeyCode::Down | KeyCode::Char('j') if !focus_left && section == Theme => {
                 go_next_theme(self);
+            }
+            KeyCode::PageUp if !focus_left && section == Theme => {
+                for _ in 0..PAGE_STEP { go_prev_theme(self); }
+            }
+            KeyCode::PageDown if !focus_left && section == Theme => {
+                for _ in 0..PAGE_STEP { go_next_theme(self); }
             }
 
             // Up/Down in Library content — move between fields (arrow keys only, not j/k)
