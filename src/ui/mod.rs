@@ -209,9 +209,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
             active_field,
         } => render_setup_database_overlay(f, area, app, &database_name, &music_directory, &active_field),
         Overlay::GlobalSearch => render_global_search_overlay(f, area, app),
-        Overlay::Settings { theme_index, original_theme } => {
-            render_settings_overlay(f, area, app, theme_index, &original_theme)
-        }
+        Overlay::Settings => render_settings_overlay(f, area, app),
         Overlay::None => {}
     }
 }

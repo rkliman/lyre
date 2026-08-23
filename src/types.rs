@@ -432,6 +432,24 @@ pub enum LyricsFetchStatus {
     Error(String),
 }
 
+/// Sections available in the settings overlay. Order of variants defines display order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SettingsSection {
+    Theme,
+    Library,
+}
+
+impl SettingsSection {
+    pub const ALL: &'static [Self] = &[Self::Theme, Self::Library];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Theme => "Theme",
+            Self::Library => "Library",
+        }
+    }
+}
+
 /// Overlay / modal modes that sit on top of the normal UI.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
@@ -451,11 +469,8 @@ pub enum Overlay {
     },
     /// Global search overlay for finding songs, albums, artists, playlists, genres.
     GlobalSearch,
-    /// Theme / settings picker.
-    Settings {
-        theme_index: usize,
-        original_theme: Option<String>,
-    },
+    /// Multi-section settings panel. All state lives in App::settings_* fields.
+    Settings,
 }
 
 #[derive(Debug, Clone, PartialEq)]

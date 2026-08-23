@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::colors::{theme_swatch, THEME_NAMES};
-use crate::types::{AddToPlaylistItem, GlobalSearchResult, SetupField};
+use crate::types::{AddToPlaylistItem, GlobalSearchResult, SetupField, SettingsSection};
 use super::{overlay_block, render_text_input_line};
 
 pub(super) fn render_new_playlist_overlay(f: &mut Frame, area: Rect, app: &App, name: &str) {
@@ -420,78 +420,144 @@ pub(super) fn render_global_search_overlay(f: &mut Frame, area: Rect, app: &mut 
     }
 }
 
-pub(super) fn render_settings_overlay(
-    f: &mut Frame,
-    area: Rect,
-    app: &App,
-    theme_index: usize,
-    original_theme: &Option<String>,
-) {
+pub(super) fn render_settings_overlay(f: &mut Frame, area: Rect, app: &App) {
     let c = &app.colors;
-    let theme_count = THEME_NAMES.len();
 
-    // Width: 2 cursor + 2 radio + 1 space + 22 name + 2 gap + 5×"██" + 4 spaces between = 43
-    // Plus 1-char side padding each side inside block = 45 inner, 47 with borders → round to 52
-    let w = 52u16.min(area.width);
-    // Height: 2 border + 2 header ("Theme\n────") + items + 1 footer
-    let h = (theme_count as u16 + 5).min(area.height);
+    let w = 60u16.min(area.width);
+    let h = 22u16.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let popup = Rect { x, y, width: w, height: h };
 
     f.render_widget(Clear, popup);
-    let block = overlay_block(" Settings ", app);
+    let block = overlay_block(" ⚙ Settings ", app);
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let layout = Layout::default()
+    // Vertical split: content + footer
+    let v_layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    // Header: "Theme" title + divider
+    // Horizontal split: left section list + right content pane
+    let h_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(14), Constraint::Min(1)])
+        .split(v_layout[0]);
+
+    let left_area = h_layout[0];
+    let right_area = h_layout[1];
+
+    // ── Left pane: section list ──────────────────────────────────────────
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(c.overlay_bg)),
+        left_area,
+    );
+    for (i, &section) in SettingsSection::ALL.iter().enumerate() {
+        if i as u16 >= left_area.height { break; }
+        let is_sel = i == app.settings_sections.index;
+        let is_focused = app.settings_focus_left;
+        let bg = if is_sel && is_focused { c.selection_bg } else { c.overlay_bg };
+        let cursor = if is_sel { "▶ " } else { "  " };
+        let text_style = if is_sel && is_focused {
+            c.selected_style()
+        } else if is_sel {
+            c.accent_style().bg(bg)
+        } else {
+            c.dim_style().bg(bg)
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(cursor, Style::default().fg(c.accent).bg(bg)),
+                Span::styled(section.name(), text_style),
+            ])).style(Style::default().bg(bg)),
+            Rect { x: left_area.x, y: left_area.y + i as u16, width: left_area.width, height: 1 },
+        );
+    }
+
+    // ── Right pane: section content (with left-border divider) ────────────
+    let right_block = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(c.dim_style())
+        .style(Style::default().bg(c.overlay_bg));
+    let right_inner = right_block.inner(right_area);
+    f.render_widget(right_block, right_area);
+
+    let current_section = app.settings_sections.current().copied().unwrap_or(SettingsSection::Theme);
+    match current_section {
+        SettingsSection::Theme => settings_theme_pane(f, right_inner, app),
+        SettingsSection::Library => settings_library_pane(f, right_inner, app),
+    }
+
+    // ── Footer ─────────────────────────────────────────────────────────────
+    let footer = if app.settings_focus_left {
+        "↑/↓ navigate · Tab/→ enter · Esc close"
+    } else {
+        match current_section {
+            SettingsSection::Library => "↑/↓ fields · Tab next · Enter save · ← or Tab sections · Esc close",
+            SettingsSection::Theme => "↑/↓ preview · Enter save · ← or Tab sections · Esc close",
+        }
+    };
+    f.render_widget(
+        Paragraph::new(Span::styled(footer, c.dim_style()))
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(c.overlay_bg)),
+        v_layout[1],
+    );
+}
+
+fn settings_theme_pane(f: &mut Frame, area: Rect, app: &App) {
+    let c = &app.colors;
+    let theme_index = app.settings_theme_index;
+    let original_theme = &app.settings_original_theme;
+    let content_focused = !app.settings_focus_left;
+
+    if area.height < 3 { return; }
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(area);
+
     f.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled("Theme", c.accent_bold_style())),
-            Line::from(Span::styled(
-                "─".repeat(inner.width as usize),
-                c.dim_style(),
-            )),
-        ])
-        .style(Style::default().bg(c.overlay_bg)),
+            Line::from(Span::styled("─".repeat(area.width as usize), c.dim_style())),
+        ]).style(Style::default().bg(c.overlay_bg)),
         layout[0],
     );
 
-    // Theme list with scrolling
     let list_area = layout[1];
-    f.render_widget(
-        Paragraph::new("").style(Style::default().bg(c.overlay_bg)),
-        list_area,
-    );
+    f.render_widget(Paragraph::new("").style(Style::default().bg(c.overlay_bg)), list_area);
+
+    let theme_count = THEME_NAMES.len();
     let visible_h = list_area.height as usize;
     let offset = theme_index.saturating_sub(visible_h.saturating_sub(1));
 
     for (row_i, i) in (offset..(offset + visible_h).min(theme_count)).enumerate() {
         let name = THEME_NAMES[i];
         let is_cursor = i == theme_index;
-        let is_active = match original_theme {
+        let is_saved = match original_theme {
             None => name == "default",
             Some(t) => name == t.as_str(),
         };
 
         let display = if name == "default" { "(default)" } else { name };
         let name_padded = format!("{:<22}", display);
-        let cursor_str = if is_cursor { "▶ " } else { "  " };
-        let radio_str = if is_active { "●" } else { "○" };
+        let cursor_str = if is_cursor && content_focused { "▶ " } else { "  " };
+        let radio_str = if is_saved { "●" } else { "○" };
         let swatches = theme_swatch(name);
 
-        let bg = if is_cursor { c.selection_bg } else { c.overlay_bg };
-        let name_style = if is_cursor { c.selected_style() } else { c.normal_style().bg(bg) };
-        let radio_style = if is_active {
+        let bg = if is_cursor && content_focused { c.selection_bg } else { c.overlay_bg };
+        let name_style = if is_cursor && content_focused {
+            c.selected_style()
+        } else if is_cursor {
+            c.accent_style().bg(bg)
+        } else {
+            c.normal_style().bg(bg)
+        };
+        let radio_style = if is_saved {
             Style::default().fg(c.accent).bg(bg)
         } else {
             Style::default().fg(c.dim).bg(bg)
@@ -511,27 +577,93 @@ pub(super) fn render_settings_overlay(
             }
         }
 
-        let line_area = Rect {
-            x: list_area.x,
-            y: list_area.y + row_i as u16,
-            width: list_area.width,
-            height: 1,
-        };
         f.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(bg)),
-            line_area,
+            Rect { x: list_area.x, y: list_area.y + row_i as u16, width: list_area.width, height: 1 },
         );
     }
+}
 
-    // Footer
+fn settings_library_pane(f: &mut Frame, area: Rect, app: &App) {
+    let c = &app.colors;
+    let content_focused = !app.settings_focus_left;
+    let lib_field = app.settings_lib_field;
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled("Library", c.accent_bold_style())),
+            Line::from(Span::styled("─".repeat(area.width as usize), c.dim_style())),
+        ]).style(Style::default().bg(c.overlay_bg)),
+        layout[0],
+    );
+
+    // Music directory field
+    let music_active = content_focused && lib_field == 0;
+    let music_block = Block::default()
+        .title(Span::styled(
+            " Music directory ",
+            Style::default().fg(if music_active { c.highlight } else { c.dim }),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(if music_active { c.accent } else { c.dim }))
+        .style(Style::default().bg(c.overlay_bg));
+    let music_inner = music_block.inner(layout[1]);
+    f.render_widget(music_block, layout[1]);
+    let music_text = if music_active {
+        format!("{}█", app.settings_music_dir)
+    } else {
+        app.settings_music_dir.clone()
+    };
     f.render_widget(
         Paragraph::new(Span::styled(
-            "↑/↓ preview · Enter save · Esc cancel",
-            c.dim_style(),
-        ))
-        .alignment(Alignment::Center)
-        .style(Style::default().bg(c.overlay_bg)),
+            music_text,
+            Style::default().fg(if music_active { c.highlight } else { c.dim }).bg(c.overlay_bg),
+        )),
+        music_inner,
+    );
+
+    // Spacer (layout[2] is empty — just background)
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(c.overlay_bg)),
         layout[2],
+    );
+
+    // Database file field
+    let db_active = content_focused && lib_field == 1;
+    let db_block = Block::default()
+        .title(Span::styled(
+            " Database file ",
+            Style::default().fg(if db_active { c.highlight } else { c.dim }),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(if db_active { c.accent } else { c.dim }))
+        .style(Style::default().bg(c.overlay_bg));
+    let db_inner = db_block.inner(layout[3]);
+    f.render_widget(db_block, layout[3]);
+    let db_text = if db_active {
+        format!("{}█", app.settings_db_name)
+    } else {
+        app.settings_db_name.clone()
+    };
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            db_text,
+            Style::default().fg(if db_active { c.highlight } else { c.dim }).bg(c.overlay_bg),
+        )),
+        db_inner,
     );
 }
 

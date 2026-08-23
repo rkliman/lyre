@@ -15,8 +15,8 @@ use crate::playlist::{scan_playlists, Playlist};
 use crate::state::StateDb;
 use crate::types::{
     AddToPlaylistItem, GlobalSearchResult, LoopMode, LyricsFetchStatus, LyricsState, Overlay,
-    Panel, PlayerState, Result, SetupField, SidebarItem, SidebarSection, SidebarSectionState,
-    SidebarSections, SortField, SortOrder, Track, TrackContext,
+    Panel, PlayerState, Result, SetupField, SettingsSection, SidebarItem, SidebarSection,
+    SidebarSectionState, SidebarSections, SortField, SortOrder, Track, TrackContext,
 };
 
 /// Number of rows moved by a single PageUp / PageDown press.
@@ -116,6 +116,17 @@ pub struct App {
     /// Saved playback position (secs) to seek to on first play after restore.
     restored_position: Option<u64>,
     last_position_save: std::time::Instant,
+
+    // Settings overlay state (populated by OpenSettings, read by renderer)
+    pub settings_sections: NavigableList<SettingsSection>,
+    pub settings_focus_left: bool,     // true = section list focused, false = content focused
+    pub settings_theme_index: usize,
+    pub settings_original_theme: Option<String>,
+    pub settings_music_dir: String,
+    pub settings_db_name: String,
+    pub settings_lib_field: usize,     // 0 = music_dir, 1 = db_name
+    pub settings_orig_music_dir: String,
+    pub settings_orig_db_name: String,
 }
 
 impl App {
@@ -299,6 +310,15 @@ impl App {
                     state_db,
                     restored_position,
                     last_position_save: std::time::Instant::now(),
+                    settings_sections: NavigableList::new(SettingsSection::ALL.to_vec()),
+                    settings_focus_left: false,
+                    settings_theme_index: 0,
+                    settings_original_theme: None,
+                    settings_music_dir: String::new(),
+                    settings_db_name: String::new(),
+                    settings_lib_field: 0,
+                    settings_orig_music_dir: String::new(),
+                    settings_orig_db_name: String::new(),
                 };
                 app.queue.index = restored_queue_index;
                 app.rebuild_sidebar();
@@ -398,6 +418,15 @@ impl App {
             state_db: StateDb::open().ok(),
             restored_position: None,
             last_position_save: std::time::Instant::now(),
+            settings_sections: NavigableList::new(SettingsSection::ALL.to_vec()),
+            settings_focus_left: false,
+            settings_theme_index: 0,
+            settings_original_theme: None,
+            settings_music_dir: String::new(),
+            settings_db_name: String::new(),
+            settings_lib_field: 0,
+            settings_orig_music_dir: String::new(),
+            settings_orig_db_name: String::new(),
         };
 
         app.rebuild_sidebar();
@@ -610,6 +639,10 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         if matches!(self.overlay, Overlay::GlobalSearch) {
             return self.handle_global_search_key(key.code);
+        }
+
+        if matches!(self.overlay, Overlay::Settings) {
+            return self.handle_settings_key(key.code);
         }
 
         // Handle sidebar search mode before keybindings lookup
@@ -955,14 +988,22 @@ impl App {
             }
 
             Action::OpenSettings => {
+                let config = load_config();
                 let original = self.active_theme.clone();
-                let idx = THEME_NAMES.iter().position(|&n| {
-                    match &original {
-                        None => n == "default",
-                        Some(t) => n == t.as_str(),
-                    }
+                let idx = THEME_NAMES.iter().position(|&n| match &original {
+                    None => n == "default",
+                    Some(t) => n == t.as_str(),
                 }).unwrap_or(0);
-                self.overlay = Overlay::Settings { theme_index: idx, original_theme: original };
+                self.settings_sections.index = 0;
+                self.settings_focus_left = false;
+                self.settings_theme_index = idx;
+                self.settings_original_theme = original;
+                self.settings_music_dir = config.files.music_directory.clone();
+                self.settings_db_name = config.files.database_name.clone();
+                self.settings_lib_field = 0;
+                self.settings_orig_music_dir = config.files.music_directory;
+                self.settings_orig_db_name = config.files.database_name;
+                self.overlay = Overlay::Settings;
             }
 
             Action::InfoClose => {
@@ -978,10 +1019,6 @@ impl App {
             // Overlay
             Action::OverlayConfirm => self.handle_overlay_confirm(),
             Action::OverlayCancel => {
-                if let Overlay::Settings { original_theme, .. } = self.overlay.clone() {
-                    self.active_theme = original_theme.clone();
-                    self.colors = ColorScheme::from_config(&self.ui_colors_config, original_theme.as_deref());
-                }
                 self.overlay = Overlay::None;
             }
             Action::OverlayChar(c) => self.handle_overlay_char(c),
@@ -1086,16 +1123,7 @@ impl App {
                     }
                 }
             }
-            Overlay::Settings { theme_index, .. } => {
-                let name = THEME_NAMES[*theme_index];
-                let theme_opt = if name == "default" { None } else { Some(name.to_string()) };
-                self.active_theme = theme_opt.clone();
-                let mut config = load_config();
-                config.ui.theme = theme_opt;
-                let _ = save_config(&config);
-                self.overlay = Overlay::None;
-            }
-            Overlay::GlobalSearch | Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::Settings | Overlay::None => {}
         }
     }
 
@@ -1123,8 +1151,7 @@ impl App {
                     active_field: active_field.clone(),
                 };
             }
-            Overlay::AddToPlaylist { .. } | Overlay::Settings { .. } => {}
-            Overlay::GlobalSearch | Overlay::None => {}
+            Overlay::AddToPlaylist { .. } | Overlay::Settings | Overlay::None | Overlay::GlobalSearch => {}
         }
     }
 
@@ -1156,8 +1183,7 @@ impl App {
                     active_field: active_field.clone(),
                 };
             }
-            Overlay::AddToPlaylist { .. } | Overlay::Settings { .. } => {}
-            Overlay::GlobalSearch | Overlay::None => {}
+            Overlay::AddToPlaylist { .. } | Overlay::Settings | Overlay::None | Overlay::GlobalSearch => {}
         }
     }
 
@@ -1183,20 +1209,138 @@ impl App {
                 let key = if delta < 0 { KeyCode::Up } else { KeyCode::Down };
                 self.add_to_playlist.navigate(key);
             }
-            Overlay::Settings { theme_index, original_theme } => {
-                let n = THEME_NAMES.len() as i64;
-                let new_idx = ((*theme_index as i64 + delta as i64).rem_euclid(n)) as usize;
-                let name = THEME_NAMES[new_idx];
-                let theme = if name == "default" { None } else { Some(name) };
-                self.active_theme = theme.map(str::to_string);
-                self.colors = ColorScheme::from_config(&self.ui_colors_config, theme);
-                self.overlay = Overlay::Settings {
-                    theme_index: new_idx,
-                    original_theme: original_theme.clone(),
-                };
-            }
-            Overlay::GlobalSearch | Overlay::None => {}
+            Overlay::GlobalSearch | Overlay::Settings | Overlay::None => {}
         }
+    }
+
+    fn handle_settings_key(&mut self, key: KeyCode) -> bool {
+        let section = self.settings_sections.current().copied().unwrap_or(SettingsSection::Theme);
+        let focus_left = self.settings_focus_left;
+        use SettingsSection::*;
+
+        let go_prev_theme = |app: &mut Self| {
+            let n = THEME_NAMES.len();
+            let new_idx = (app.settings_theme_index + n - 1) % n;
+            app.settings_theme_index = new_idx;
+            let name = THEME_NAMES[new_idx];
+            let theme = if name == "default" { None } else { Some(name) };
+            app.active_theme = theme.map(str::to_string);
+            app.colors = ColorScheme::from_config(&app.ui_colors_config, theme);
+        };
+        let go_next_theme = |app: &mut Self| {
+            let n = THEME_NAMES.len();
+            let new_idx = (app.settings_theme_index + 1) % n;
+            app.settings_theme_index = new_idx;
+            let name = THEME_NAMES[new_idx];
+            let theme = if name == "default" { None } else { Some(name) };
+            app.active_theme = theme.map(str::to_string);
+            app.colors = ColorScheme::from_config(&app.ui_colors_config, theme);
+        };
+        let revert_theme = |app: &mut Self| {
+            let orig = app.settings_original_theme.clone();
+            let idx = THEME_NAMES.iter().position(|&n| match &orig {
+                None => n == "default",
+                Some(t) => n == t.as_str(),
+            }).unwrap_or(0);
+            app.settings_theme_index = idx;
+            app.active_theme = orig.clone();
+            app.colors = ColorScheme::from_config(&app.ui_colors_config, orig.as_deref());
+        };
+
+        match key {
+            KeyCode::Esc => {
+                revert_theme(self);
+                self.overlay = Overlay::None;
+            }
+
+            // Tab: cycle library fields when in Library content; otherwise toggle pane
+            KeyCode::Tab if !focus_left && section == Library => {
+                self.settings_lib_field = 1 - self.settings_lib_field;
+            }
+            KeyCode::Tab => {
+                if focus_left {
+                    self.settings_focus_left = false;
+                } else {
+                    if section == Theme { revert_theme(self); }
+                    self.settings_focus_left = true;
+                }
+            }
+
+            // ← always goes to section list; revert theme preview
+            KeyCode::Left if !focus_left => {
+                if section == Theme { revert_theme(self); }
+                self.settings_focus_left = true;
+            }
+            // → enters content pane from section list
+            KeyCode::Right if focus_left => {
+                self.settings_focus_left = false;
+            }
+
+            // Up/Down in section list
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') if focus_left => {
+                self.settings_sections.navigate(key);
+            }
+
+            // Up/Down in Theme content
+            KeyCode::Up | KeyCode::Char('k') if !focus_left && section == Theme => {
+                go_prev_theme(self);
+            }
+            KeyCode::Down | KeyCode::Char('j') if !focus_left && section == Theme => {
+                go_next_theme(self);
+            }
+
+            // Up/Down in Library content — move between fields (arrow keys only, not j/k)
+            KeyCode::Up if !focus_left && section == Library => {
+                self.settings_lib_field = self.settings_lib_field.saturating_sub(1);
+            }
+            KeyCode::Down if !focus_left && section == Library => {
+                self.settings_lib_field = (self.settings_lib_field + 1).min(1);
+            }
+
+            KeyCode::Enter if focus_left => {
+                self.settings_focus_left = false;
+            }
+            KeyCode::Enter if !focus_left && section == Theme => {
+                // Save theme
+                let name = THEME_NAMES[self.settings_theme_index];
+                let theme_opt = if name == "default" { None } else { Some(name.to_string()) };
+                self.active_theme = theme_opt.clone();
+                self.settings_original_theme = theme_opt.clone();
+                let mut config = load_config();
+                config.ui.theme = theme_opt;
+                let _ = save_config(&config);
+                self.status_message = Some("Theme saved.".to_string());
+            }
+            KeyCode::Enter if !focus_left && section == Library => {
+                // Save library paths
+                let mut config = load_config();
+                config.files.music_directory = self.settings_music_dir.clone();
+                config.files.database_name = self.settings_db_name.clone();
+                let _ = save_config(&config);
+                self.music_dir = expand_tilde(&self.settings_music_dir);
+                self.db_path = expand_tilde(&self.settings_db_name);
+                self.settings_orig_music_dir = self.settings_music_dir.clone();
+                self.settings_orig_db_name = self.settings_db_name.clone();
+                self.status_message = Some("Library settings saved. Restart to re-index.".to_string());
+            }
+
+            // Text input for Library content
+            KeyCode::Char(c) if !focus_left && section == Library => {
+                match self.settings_lib_field {
+                    0 => self.settings_music_dir.push(c),
+                    _ => self.settings_db_name.push(c),
+                }
+            }
+            KeyCode::Backspace if !focus_left && section == Library => {
+                match self.settings_lib_field {
+                    0 => { self.settings_music_dir.pop(); }
+                    _ => { self.settings_db_name.pop(); }
+                }
+            }
+
+            _ => {}
+        }
+        false
     }
 
     fn handle_sidebar_key(&mut self, key: KeyCode) {
