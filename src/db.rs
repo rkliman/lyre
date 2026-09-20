@@ -32,7 +32,9 @@ impl Db {
                 year INTEGER,
                 genre TEXT,
                 added_at INTEGER DEFAULT (strftime('%s', 'now')),
-                favorite INTEGER DEFAULT 0
+                favorite INTEGER DEFAULT 0,
+                play_count INTEGER DEFAULT 0,
+                last_played INTEGER DEFAULT 0
             )",
             [],
         )?;
@@ -49,6 +51,14 @@ impl Db {
             "ALTER TABLE tracks ADD COLUMN mtime INTEGER DEFAULT 0",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE tracks ADD COLUMN play_count INTEGER DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE tracks ADD COLUMN last_played INTEGER DEFAULT 0",
+            [],
+        );
         Ok(Self { conn, music_dir: music_dir.to_string() })
     }
 
@@ -62,7 +72,7 @@ impl Db {
 
     pub fn all_tracks(&self) -> Result<Vec<Track>> {
         let mut stmt = self.conn.prepare(
-            "SELECT path, artist, album, albumartist, title, duration, year, genre, added_at, favorite
+            "SELECT path, artist, album, albumartist, title, duration, year, genre, added_at, favorite, play_count, last_played
              FROM tracks
              ORDER BY artist, album, title",
         )?;
@@ -83,6 +93,8 @@ impl Db {
                     genre: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                     added_at: row.get::<_, Option<i64>>(8)?.unwrap_or(0),
                     favorite: row.get::<_, Option<i64>>(9)?.unwrap_or(0) != 0,
+                    play_count: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                    last_played: row.get::<_, Option<i64>>(11)?.unwrap_or(0),
                 })
             })?
             .filter_map(|r| r.ok())
@@ -98,6 +110,20 @@ impl Db {
             rusqlite::params![if favorite { 1 } else { 0 }, rel],
         )?;
         Ok(())
+    }
+
+    pub fn record_play(&self, path: &str) -> Result<i64> {
+        let rel = self.to_relative(path);
+        self.conn.execute(
+            "UPDATE tracks SET play_count = play_count + 1, last_played = strftime('%s', 'now') WHERE path = ?",
+            rusqlite::params![rel],
+        )?;
+        let last_played: i64 = self.conn.query_row(
+            "SELECT last_played FROM tracks WHERE path = ?",
+            rusqlite::params![rel],
+            |row| row.get(0),
+        )?;
+        Ok(last_played)
     }
 
     pub fn update_durations(&self, updates: &[(String, i64)]) -> Result<()> {

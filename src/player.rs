@@ -236,6 +236,10 @@ pub struct Player {
     pub state: PlayerState,
     pub current_track: Option<Arc<Track>>,
     pub playing_index: usize,
+    /// Bumped every time a new playback instance begins (including a track
+    /// restarting itself, as in repeat-one), so callers can detect "a play
+    /// happened" without relying on the track path changing.
+    pub play_generation: u64,
     pub volume: f32,
     playback_start: Option<Instant>,
     paused_elapsed: Duration,
@@ -263,6 +267,7 @@ impl Player {
             state: PlayerState::Stopped,
             current_track: None,
             playing_index: 0,
+            play_generation: 0,
             volume: 1.0,
             playback_start: None,
             paused_elapsed: Duration::ZERO,
@@ -312,6 +317,7 @@ impl Player {
         self.playback_start = Some(Instant::now());
         self.paused_elapsed = Duration::ZERO;
         self.seek_offset = Duration::ZERO;
+        self.play_generation += 1;
 
         Ok(())
     }
@@ -497,6 +503,7 @@ impl Player {
                 self.seek_offset = Duration::ZERO;
                 self.next_track_buffered = false;
                 self.prebuffered_queue_index = None;
+                self.play_generation += 1;
                 true
             }
             (Some(expected), _) => {

@@ -29,6 +29,8 @@ pub struct Track {
     pub genre: String,
     pub added_at: i64,
     pub favorite: bool,
+    pub play_count: i64,
+    pub last_played: i64,
 }
 
 impl Track {
@@ -77,6 +79,172 @@ pub fn format_duration(secs: i64) -> String {
     }
 }
 
+/// Renders a unix timestamp as a short relative time ("3d ago"), or "never"
+/// for the zero/unset sentinel used by tracks that haven't been played yet.
+pub fn format_relative(ts: i64) -> String {
+    if ts <= 0 {
+        return "never".to_string();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(ts);
+    let delta = (now - ts).max(0);
+    if delta < 60 {
+        "just now".to_string()
+    } else if delta < 3600 {
+        format!("{}m ago", delta / 60)
+    } else if delta < 86_400 {
+        format!("{}h ago", delta / 3600)
+    } else if delta < 86_400 * 30 {
+        format!("{}d ago", delta / 86_400)
+    } else if delta < 86_400 * 365 {
+        format!("{}mo ago", delta / (86_400 * 30))
+    } else {
+        format!("{}y ago", delta / (86_400 * 365))
+    }
+}
+
+/// An optional column that can be shown in the track list, toggled from the
+/// settings panel. `ALL` order defines both the settings checklist order and
+/// the on-screen column order when multiple are enabled.
+///
+/// `Artist` and `Album` are "wrap" columns: they get a proportional share of
+/// the panel's flexible width (alongside the always-shown Title) and word-wrap
+/// across multiple lines when a row is selected. Every other column is a
+/// "flat" column: a fixed-width, single-line field. See `TrackColumn::is_wrap`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackColumn {
+    Artist,
+    Album,
+    Duration,
+    Year,
+    Genre,
+    PlayCount,
+    DateAdded,
+    LastPlayed,
+}
+
+impl TrackColumn {
+    pub const ALL: &'static [Self] = &[
+        Self::Artist,
+        Self::Album,
+        Self::Duration,
+        Self::Year,
+        Self::Genre,
+        Self::PlayCount,
+        Self::DateAdded,
+        Self::LastPlayed,
+    ];
+
+    pub fn is_wrap(self) -> bool {
+        matches!(self, Self::Artist | Self::Album)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+            Self::Duration => "Duration",
+            Self::Year => "Year",
+            Self::Genre => "Genre",
+            Self::PlayCount => "Plays",
+            Self::DateAdded => "Added",
+            Self::LastPlayed => "Last Played",
+        }
+    }
+
+    /// Short label used in the flat-column table header (full `label()` text
+    /// would overflow the fixed column width for `Duration`).
+    pub fn header_label(self) -> &'static str {
+        match self {
+            Self::Duration => "Dur",
+            other => other.label(),
+        }
+    }
+
+    /// Stable identifier persisted in config.toml.
+    pub fn config_key(self) -> &'static str {
+        match self {
+            Self::Artist => "artist",
+            Self::Album => "album",
+            Self::Duration => "duration",
+            Self::Year => "year",
+            Self::Genre => "genre",
+            Self::PlayCount => "play_count",
+            Self::DateAdded => "date_added",
+            Self::LastPlayed => "last_played",
+        }
+    }
+
+    /// Fixed display width of a flat column. Not meaningful for wrap columns
+    /// (`Artist`/`Album`), which are sized dynamically — see `is_wrap`.
+    pub fn width(self) -> usize {
+        match self {
+            Self::Artist | Self::Album => unreachable!("wrap columns have no fixed width"),
+            Self::Duration => 5,
+            Self::Year => 4,
+            Self::Genre => 12,
+            Self::PlayCount => 5,
+            Self::DateAdded => 10,
+            Self::LastPlayed => 10,
+        }
+    }
+
+    pub fn value(self, track: &Track) -> String {
+        match self {
+            Self::Artist => track.display_artist().to_string(),
+            Self::Album => track.display_album().to_string(),
+            Self::Duration => track.duration_str(),
+            Self::Year => if track.year > 0 { track.year.to_string() } else { "-".to_string() },
+            Self::Genre => if track.genre.is_empty() { "-".to_string() } else { track.genre.clone() },
+            Self::PlayCount => track.play_count.to_string(),
+            Self::DateAdded => format_relative(track.added_at),
+            Self::LastPlayed => format_relative(track.last_played),
+        }
+    }
+
+    fn is_numeric(self) -> bool {
+        matches!(self, Self::Duration | Self::Year | Self::PlayCount)
+    }
+
+    /// Right-aligns numeric columns, left-aligns/truncates the rest — always
+    /// exactly `self.width()` display columns wide. Flat columns only.
+    fn cell_from(self, text: &str) -> String {
+        use crate::util::truncate_field;
+        use unicode_width::UnicodeWidthStr;
+        let w = self.width();
+        if self.is_numeric() {
+            let tw = text.width();
+            if tw >= w {
+                text.to_string()
+            } else {
+                format!("{}{}", " ".repeat(w - tw), text)
+            }
+        } else {
+            truncate_field(text, w)
+        }
+    }
+
+    pub fn header_cell(self) -> String {
+        self.cell_from(self.header_label())
+    }
+
+    pub fn value_cell(self, track: &Track) -> String {
+        self.cell_from(&self.value(track))
+    }
+
+    pub fn blank_cell(self) -> String {
+        " ".repeat(self.width())
+    }
+}
+
+/// Total display width (including the "  " separator before each column)
+/// reserved for a set of enabled flat (non-wrap) columns.
+pub fn extra_columns_width(columns: &[TrackColumn]) -> usize {
+    columns.iter().filter(|c| !c.is_wrap()).map(|c| c.width() + 2).sum()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SortField {
     Title,
@@ -86,6 +254,8 @@ pub enum SortField {
     Genre,
     Duration,
     DateAdded,
+    PlayCount,
+    LastPlayed,
 }
 
 impl SortField {
@@ -98,6 +268,8 @@ impl SortField {
             SortField::Genre => "Genre",
             SortField::Duration => "Duration",
             SortField::DateAdded => "Date Added",
+            SortField::PlayCount => "Play Count",
+            SortField::LastPlayed => "Last Played",
         }
     }
 
@@ -109,7 +281,9 @@ impl SortField {
             SortField::Year => SortField::Genre,
             SortField::Genre => SortField::Duration,
             SortField::Duration => SortField::DateAdded,
-            SortField::DateAdded => SortField::Title,
+            SortField::DateAdded => SortField::PlayCount,
+            SortField::PlayCount => SortField::LastPlayed,
+            SortField::LastPlayed => SortField::Title,
         }
     }
 }
@@ -132,6 +306,8 @@ pub enum Panel {
 pub enum SidebarItem {
     AllTracks,
     RecentlyAdded,
+    RecentlyPlayed,
+    MostPlayed,
     Favorites,
     Artists,
     Artist(String),
@@ -149,6 +325,8 @@ impl SidebarItem {
             SidebarItem::AllTracks => "♫ All Tracks".to_string(),
             SidebarItem::Favorites => "♫ Favorites".to_string(),
             SidebarItem::RecentlyAdded => "♫ Recently Added".to_string(),
+            SidebarItem::RecentlyPlayed => "♫ Recently Played".to_string(),
+            SidebarItem::MostPlayed => "♫ Most Played".to_string(),
             SidebarItem::Artists => "  Artists".to_string(),
             SidebarItem::Artist(a) => format!(" {}", a),
             SidebarItem::Albums => "  Albums".to_string(),
@@ -164,6 +342,8 @@ impl SidebarItem {
         match self {
             SidebarItem::AllTracks => "All Tracks".to_string(),
             SidebarItem::RecentlyAdded => "Recently Added".to_string(),
+            SidebarItem::RecentlyPlayed => "Recently Played".to_string(),
+            SidebarItem::MostPlayed => "Most Played".to_string(),
             SidebarItem::Favorites => "Favorites".to_string(),
             SidebarItem::Artists => "Artists".to_string(),
             SidebarItem::Artist(a) => a.clone(),
@@ -437,15 +617,17 @@ pub enum LyricsFetchStatus {
 pub enum SettingsSection {
     Theme,
     Library,
+    Columns,
 }
 
 impl SettingsSection {
-    pub const ALL: &'static [Self] = &[Self::Theme, Self::Library];
+    pub const ALL: &'static [Self] = &[Self::Theme, Self::Library, Self::Columns];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Theme => "Theme",
             Self::Library => "Library",
+            Self::Columns => "Columns",
         }
     }
 }

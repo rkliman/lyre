@@ -86,22 +86,16 @@ pub(super) fn render_tracklist(f: &mut Frame, app: &mut App, area: Rect) {
     render_search_box(f, search_area, &app.search_input, app.search_mode, result_count, &c);
 
     let w = inner.width as usize;
-    let title_w = w * 32 / 100;
-    let title_hw = title_w.saturating_sub(5);
-    let artist_w = w * 28 / 100;
-    let album_w = w * 28 / 100;
+    let layout = crate::app::tracklist_layout(w, &app.visible_columns);
 
-    let header = format!(
-        "  {}  {:<tw$}  {:<aw$}  {:<bw$} {:>4}",
-        FAVORITE_ICON,
-        "Title",
-        "Artist",
-        "Album",
-        "Dur",
-        tw = title_hw,
-        aw = artist_w,
-        bw = album_w,
-    );
+    let mut header = format!("  {}  {:<tw$}", FAVORITE_ICON, "Title", tw = layout.title_w);
+    for (col, cw) in &layout.wrap_cols {
+        header.push_str(&format!("  {:<cw$}", col.label(), cw = cw));
+    }
+    header.push_str("  ");
+    for col in &layout.flat_cols {
+        header.push_str(&format!("{}  ", col.header_cell()));
+    }
     let header_widget = Paragraph::new(header).style(
         c.accent_bold_style().bg(c.header_bg),
     );

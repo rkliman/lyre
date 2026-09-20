@@ -488,6 +488,7 @@ pub(super) fn render_settings_overlay(f: &mut Frame, area: Rect, app: &App) {
     match current_section {
         SettingsSection::Theme => settings_theme_pane(f, right_inner, app),
         SettingsSection::Library => settings_library_pane(f, right_inner, app),
+        SettingsSection::Columns => settings_columns_pane(f, right_inner, app),
     }
 
     // ── Footer ─────────────────────────────────────────────────────────────
@@ -497,6 +498,7 @@ pub(super) fn render_settings_overlay(f: &mut Frame, area: Rect, app: &App) {
         match current_section {
             SettingsSection::Library => "↑/↓ fields · Tab next · Enter save · ← or Tab sections · Esc close",
             SettingsSection::Theme => "↑/↓ preview · Enter save · ← or Tab sections · Esc close",
+            SettingsSection::Columns => "↑/↓ move · Enter/Space toggle · ← or Tab sections · Esc close",
         }
     };
     f.render_widget(
@@ -665,6 +667,62 @@ fn settings_library_pane(f: &mut Frame, area: Rect, app: &App) {
         )),
         db_inner,
     );
+}
+
+fn settings_columns_pane(f: &mut Frame, area: Rect, app: &App) {
+    let c = &app.colors;
+    let content_focused = !app.settings_focus_left;
+
+    if area.height < 3 { return; }
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(area);
+
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled("Columns", c.accent_bold_style())),
+            Line::from(Span::styled("─".repeat(area.width as usize), c.dim_style())),
+        ]).style(Style::default().bg(c.overlay_bg)),
+        layout[0],
+    );
+
+    let list_area = layout[1];
+    f.render_widget(Paragraph::new("").style(Style::default().bg(c.overlay_bg)), list_area);
+
+    for (i, col) in crate::types::TrackColumn::ALL.iter().enumerate() {
+        if i as u16 >= list_area.height { break; }
+        let is_cursor = i == app.settings_columns_index;
+        let is_on = app.settings_columns_selected.get(i).copied().unwrap_or(false);
+
+        let cursor_str = if is_cursor && content_focused { "▶ " } else { "  " };
+        let box_str = if is_on { "[x]" } else { "[ ]" };
+
+        let bg = if is_cursor && content_focused { c.selection_bg } else { c.overlay_bg };
+        let name_style = if is_cursor && content_focused {
+            c.selected_style()
+        } else if is_cursor {
+            c.accent_style().bg(bg)
+        } else {
+            c.normal_style().bg(bg)
+        };
+        let box_style = if is_on {
+            Style::default().fg(c.accent).bg(bg)
+        } else {
+            Style::default().fg(c.dim).bg(bg)
+        };
+
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(cursor_str, Style::default().fg(c.accent).bg(bg)),
+                Span::styled(box_str, box_style),
+                Span::styled(" ", Style::default().bg(bg)),
+                Span::styled(col.label(), name_style),
+            ])).style(Style::default().bg(bg)),
+            Rect { x: list_area.x, y: list_area.y + i as u16, width: list_area.width, height: 1 },
+        );
+    }
 }
 
 pub(super) fn render_help(f: &mut Frame, area: Rect, app: &mut App) {

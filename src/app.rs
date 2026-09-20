@@ -16,13 +16,80 @@ use crate::state::StateDb;
 use crate::types::{
     AddToPlaylistItem, GlobalSearchResult, LoopMode, LyricsFetchStatus, LyricsState, Overlay,
     Panel, PlayerState, Result, SetupField, SettingsSection, SidebarItem, SidebarSection,
-    SidebarSectionState, SidebarSections, SortField, SortOrder, Track, TrackContext,
+    SidebarSectionState, SidebarSections, SortField, SortOrder, Track, TrackColumn, TrackContext,
 };
 
 /// Number of rows moved by a single PageUp / PageDown press.
 /// Matches [`NavigableList::navigate`]'s built-in step so cursor navigation and
 /// selection extension feel identical.
 const PAGE_STEP: usize = 10;
+
+/// Relative weight of Title vs. the optional Artist/Album "wrap" columns when
+/// dividing up the flexible portion of a track row's width.
+const TITLE_WEIGHT: usize = 32;
+const ARTIST_WEIGHT: usize = 28;
+const ALBUM_WEIGHT: usize = 28;
+
+/// Column layout for one render of the track list: how wide Title is, which
+/// wrap columns (Artist/Album) are enabled and how wide each is, and which
+/// flat columns (Duration + metadata) are enabled, in display order.
+/// Shared by the header (ui/tracklist.rs) and the row cache
+/// (`App::rebuild_wrapped_tracks`) so both stay pixel-aligned.
+pub(crate) struct TracklistLayout {
+    pub title_w: usize,
+    /// Enabled wrap columns (Artist/Album, in `TrackColumn::ALL` order) with
+    /// their computed widths.
+    pub wrap_cols: Vec<(TrackColumn, usize)>,
+    /// Enabled flat columns (Duration + metadata), in `TrackColumn::ALL` order.
+    pub flat_cols: Vec<TrackColumn>,
+}
+
+/// Computes the track-list column layout so a full row — margin, favorite
+/// icon, Title, any enabled wrap/flat columns — fits within `panel_w`
+/// without clipping.
+pub(crate) fn tracklist_layout(panel_w: usize, visible: &[TrackColumn]) -> TracklistLayout {
+    let wrap_cols: Vec<TrackColumn> = TrackColumn::ALL
+        .iter()
+        .copied()
+        .filter(|c| c.is_wrap() && visible.contains(c))
+        .collect();
+    let flat_cols: Vec<TrackColumn> = TrackColumn::ALL
+        .iter()
+        .copied()
+        .filter(|c| !c.is_wrap() && visible.contains(c))
+        .collect();
+
+    // 2 leading margin + 1 favorite icon + "  " before Title.
+    let overhead = 2 + 1 + 2;
+    let flat_w = crate::types::extra_columns_width(&flat_cols);
+    // Each wrap column needs its own "  " separator before it.
+    let sep_w = 2 * wrap_cols.len();
+    let pool = panel_w
+        .saturating_sub(overhead + flat_w)
+        .saturating_sub(sep_w);
+
+    let total_weight = TITLE_WEIGHT
+        + wrap_cols.iter().map(|c| match c {
+            TrackColumn::Artist => ARTIST_WEIGHT,
+            TrackColumn::Album => ALBUM_WEIGHT,
+            _ => 0,
+        }).sum::<usize>();
+
+    let title_w = pool * TITLE_WEIGHT / total_weight;
+    let wrap_cols: Vec<(TrackColumn, usize)> = wrap_cols
+        .into_iter()
+        .map(|c| {
+            let weight = match c {
+                TrackColumn::Artist => ARTIST_WEIGHT,
+                TrackColumn::Album => ALBUM_WEIGHT,
+                _ => 0,
+            };
+            (c, pool * weight / total_weight)
+        })
+        .collect();
+
+    TracklistLayout { title_w, wrap_cols, flat_cols }
+}
 
 fn default_sidebar_expanded() -> HashMap<String, bool> {
     [
@@ -62,6 +129,8 @@ pub struct App {
     // expanded_lines: full word-wrapped rows shown when the track is selected.
     pub wrapped_tracks: Vec<(String, Vec<String>)>,
     pub wrapped_width: usize,
+    /// Optional extra columns to render in the track list, configurable from Settings.
+    pub visible_columns: Vec<TrackColumn>,
     pub sidebar: SidebarSections,
     pub sidebar_list: NavigableList<SidebarItem>,
     pub sidebar_expanded: HashMap<String, bool>,
@@ -116,6 +185,9 @@ pub struct App {
     /// Saved playback position (secs) to seek to on first play after restore.
     restored_position: Option<u64>,
     last_position_save: std::time::Instant,
+    /// `Player::play_generation` a play was already recorded for, to avoid
+    /// double-counting while the same track keeps playing across ticks.
+    last_play_recorded_generation: Option<u64>,
 
     // Settings overlay state (populated by OpenSettings, read by renderer)
     pub settings_sections: NavigableList<SettingsSection>,
@@ -127,6 +199,9 @@ pub struct App {
     pub settings_lib_field: usize,     // 0 = music_dir, 1 = db_name
     pub settings_orig_music_dir: String,
     pub settings_orig_db_name: String,
+    pub settings_columns_index: usize,
+    /// Working copy of checkbox state, parallel to `TrackColumn::ALL`.
+    pub settings_columns_selected: Vec<bool>,
 }
 
 impl App {
@@ -245,6 +320,12 @@ impl App {
                     Some(rx)
                 };
 
+                let visible_columns: Vec<TrackColumn> = TrackColumn::ALL
+                    .iter()
+                    .copied()
+                    .filter(|c| config.ui.columns.iter().any(|k| k == c.config_key()))
+                    .collect();
+
                 let mut app = Self {
                     colors,
                     active_theme,
@@ -258,6 +339,7 @@ impl App {
                     track_heading: "All Tracks".to_string(),
                     wrapped_tracks: Vec::new(),
                     wrapped_width: 0,
+                    visible_columns,
                     sidebar: SidebarSections {
                         artists: SidebarSectionState { items: artists, filter_indices: None },
                         albums: SidebarSectionState { items: albums, filter_indices: None },
@@ -310,6 +392,7 @@ impl App {
                     state_db,
                     restored_position,
                     last_position_save: std::time::Instant::now(),
+                    last_play_recorded_generation: None,
                     settings_sections: NavigableList::new(SettingsSection::ALL.to_vec()),
                     settings_focus_left: false,
                     settings_theme_index: 0,
@@ -319,6 +402,8 @@ impl App {
                     settings_lib_field: 0,
                     settings_orig_music_dir: String::new(),
                     settings_orig_db_name: String::new(),
+                    settings_columns_index: 0,
+                    settings_columns_selected: vec![false; TrackColumn::ALL.len()],
                 };
                 app.queue.index = restored_queue_index;
                 app.rebuild_sidebar();
@@ -368,6 +453,7 @@ impl App {
             track_heading: "All Tracks".to_string(),
             wrapped_tracks: Vec::new(),
             wrapped_width: 0,
+            visible_columns: vec![TrackColumn::Artist, TrackColumn::Album, TrackColumn::Duration, TrackColumn::PlayCount],
             sidebar: SidebarSections {
                 playlists: SidebarSectionState {
                     items: playlist_names,
@@ -418,6 +504,7 @@ impl App {
             state_db: StateDb::open().ok(),
             restored_position: None,
             last_position_save: std::time::Instant::now(),
+            last_play_recorded_generation: None,
             settings_sections: NavigableList::new(SettingsSection::ALL.to_vec()),
             settings_focus_left: false,
             settings_theme_index: 0,
@@ -427,6 +514,8 @@ impl App {
             settings_lib_field: 0,
             settings_orig_music_dir: String::new(),
             settings_orig_db_name: String::new(),
+            settings_columns_index: 0,
+            settings_columns_selected: vec![false; TrackColumn::ALL.len()],
         };
 
         app.rebuild_sidebar();
@@ -439,6 +528,8 @@ impl App {
             SidebarItem::AllTracks,
             SidebarItem::Favorites,
             SidebarItem::RecentlyAdded,
+            SidebarItem::RecentlyPlayed,
+            SidebarItem::MostPlayed,
         ];
 
         let artists_open = *self.sidebar_expanded.get("Artists").unwrap_or(&true);
@@ -514,10 +605,22 @@ impl App {
     }
 
     pub fn tick(&mut self) {
-        if self.player.poll_track_transition(&self.queue.items) {
+        let transitioned = self.player.poll_track_transition(&self.queue.items);
+        if transitioned {
             self.queue.index = self.player.playing_index;
             self.refresh_album_art();
             self.persist_queue();
+        }
+        if self.player.state == crate::types::PlayerState::Playing {
+            if let Some(track) = self.player.current_track.clone() {
+                // Keyed on play_generation (bumped on every playback start, even a
+                // manual "next" that loops back onto the same track under repeat-one)
+                // rather than the track path, so repeats of the same track still count.
+                if self.last_play_recorded_generation != Some(self.player.play_generation) {
+                    self.last_play_recorded_generation = Some(self.player.play_generation);
+                    self.record_play(&track.path);
+                }
+            }
         }
         self.player.maybe_prebuffer_next(&self.queue.items);
         if self.player.is_finished() {
@@ -1003,6 +1106,11 @@ impl App {
                 self.settings_lib_field = 0;
                 self.settings_orig_music_dir = config.files.music_directory;
                 self.settings_orig_db_name = config.files.database_name;
+                self.settings_columns_index = 0;
+                self.settings_columns_selected = TrackColumn::ALL
+                    .iter()
+                    .map(|c| self.visible_columns.contains(c))
+                    .collect();
                 self.overlay = Overlay::Settings;
             }
 
@@ -1303,6 +1411,15 @@ impl App {
                 self.settings_lib_field = (self.settings_lib_field + 1).min(1);
             }
 
+            // Up/Down/PageUp/PageDown in Columns content — move the checklist cursor
+            KeyCode::Up | KeyCode::Char('k') if !focus_left && section == Columns => {
+                self.settings_columns_index = self.settings_columns_index.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') if !focus_left && section == Columns => {
+                self.settings_columns_index = (self.settings_columns_index + 1)
+                    .min(TrackColumn::ALL.len().saturating_sub(1));
+            }
+
             KeyCode::Enter if focus_left => {
                 self.settings_focus_left = false;
             }
@@ -1328,6 +1445,27 @@ impl App {
                 self.settings_orig_music_dir = self.settings_music_dir.clone();
                 self.settings_orig_db_name = self.settings_db_name.clone();
                 self.status_message = Some("Library settings saved. Restart to re-index.".to_string());
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if !focus_left && section == Columns => {
+                // Toggle the highlighted column and persist the checklist immediately.
+                if let Some(sel) = self.settings_columns_selected.get_mut(self.settings_columns_index) {
+                    *sel = !*sel;
+                }
+                self.visible_columns = TrackColumn::ALL
+                    .iter()
+                    .zip(self.settings_columns_selected.iter())
+                    .filter(|(_, &on)| on)
+                    .map(|(c, _)| *c)
+                    .collect();
+                self.invalidate_wrap_cache();
+                let mut config = load_config();
+                config.ui.columns = self
+                    .visible_columns
+                    .iter()
+                    .map(|c| c.config_key().to_string())
+                    .collect();
+                let _ = save_config(&config);
+                self.status_message = Some("Columns updated.".to_string());
             }
 
             // Text input for Library content
@@ -1841,6 +1979,28 @@ impl App {
                 sorted.truncate(50);
                 sorted
             }
+            SidebarItem::RecentlyPlayed => {
+                let mut sorted: Vec<Arc<Track>> = self
+                    .all_tracks
+                    .iter()
+                    .filter(|t| t.last_played > 0)
+                    .cloned()
+                    .collect();
+                sorted.sort_by(|a, b| b.last_played.cmp(&a.last_played));
+                sorted.truncate(50);
+                sorted
+            }
+            SidebarItem::MostPlayed => {
+                let mut sorted: Vec<Arc<Track>> = self
+                    .all_tracks
+                    .iter()
+                    .filter(|t| t.play_count > 0)
+                    .cloned()
+                    .collect();
+                sorted.sort_by(|a, b| b.play_count.cmp(&a.play_count));
+                sorted.truncate(50);
+                sorted
+            }
             SidebarItem::Artist(a) => self
                 .all_tracks
                 .iter()
@@ -1876,13 +2036,25 @@ impl App {
                 self.sort_field = SortField::DateAdded;
                 self.sort_order = SortOrder::Desc;
             }
+            SidebarItem::RecentlyPlayed => {
+                self.sort_field = SortField::LastPlayed;
+                self.sort_order = SortOrder::Desc;
+            }
+            SidebarItem::MostPlayed => {
+                self.sort_field = SortField::PlayCount;
+                self.sort_order = SortOrder::Desc;
+            }
             _ => {
                 self.sort_field = SortField::Artist;
                 self.sort_order = SortOrder::Asc;
             }
         }
 
-        if self.track_context == TrackContext::Library && !matches!(item, SidebarItem::RecentlyAdded) {
+        let already_sorted = matches!(
+            item,
+            SidebarItem::RecentlyAdded | SidebarItem::RecentlyPlayed | SidebarItem::MostPlayed
+        );
+        if self.track_context == TrackContext::Library && !already_sorted {
             self.apply_sort();
         }
         self.invalidate_wrap_cache();
@@ -2238,6 +2410,14 @@ impl App {
                 let c = a.added_at.cmp(&b.added_at);
                 if asc { c } else { c.reverse() }
             }),
+            SortField::PlayCount => self.track_list.items.sort_by(|a, b| {
+                let c = a.play_count.cmp(&b.play_count);
+                if asc { c } else { c.reverse() }
+            }),
+            SortField::LastPlayed => self.track_list.items.sort_by(|a, b| {
+                let c = a.last_played.cmp(&b.last_played);
+                if asc { c } else { c.reverse() }
+            }),
         }
         self.invalidate_wrap_cache();
     }
@@ -2489,6 +2669,32 @@ impl App {
         self.persist_queue();
     }
 
+    /// Record a play for the track at `path`: increments its play count and
+    /// stamps last_played, in the database and in the in-memory track lists.
+    fn record_play(&mut self, path: &str) {
+        let db = Db::open(&self.db_path, &self.music_dir).ok();
+        let last_played = db
+            .as_ref()
+            .and_then(|d| d.record_play(path).ok())
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0)
+            });
+
+        for t in self.all_tracks.iter_mut().filter(|t| t.path == path) {
+            let t = Arc::make_mut(t);
+            t.play_count += 1;
+            t.last_played = last_played;
+        }
+        for t in self.track_list.items.iter_mut().filter(|t| t.path == path) {
+            let t = Arc::make_mut(t);
+            t.play_count += 1;
+            t.last_played = last_played;
+        }
+    }
+
     fn toggle_favorite_selected(&mut self) {
         if self.track_list.is_empty() {
             return;
@@ -2575,9 +2781,10 @@ impl App {
     /// Rebuild the wrap cache for the given total panel width.
     /// Called from ui.rs when the width changes or cache is invalid.
     pub fn rebuild_wrapped_tracks(&mut self, panel_w: usize) {
-        let title_w1 = (panel_w * 32 / 100).saturating_sub(5);
-        let artist_w = panel_w * 28 / 100;
-        let album_w = panel_w * 28 / 100;
+        let layout = tracklist_layout(panel_w, &self.visible_columns);
+        let title_w = layout.title_w;
+        let wrap_cols = layout.wrap_cols;
+        let flat_cols = layout.flat_cols;
 
         self.wrapped_tracks = self
             .track_list.items
@@ -2585,51 +2792,64 @@ impl App {
             .map(|track| {
                 let fav = if track.favorite { FAVORITE_ICON } else { " " };
                 let title = track.display_title();
-                let artist = track.display_artist();
-                let album = track.display_album();
-                let dur = track.duration_str();
+
+                let wrap_values: Vec<(String, usize)> = wrap_cols
+                    .iter()
+                    .map(|&(c, w)| (c.value(track), w))
+                    .collect();
+                let flat_str: String = flat_cols
+                    .iter()
+                    .map(|c| format!("{}  ", c.value_cell(track)))
+                    .collect();
+                let blank_flat: String = flat_cols
+                    .iter()
+                    .map(|c| format!("{}  ", c.blank_cell()))
+                    .collect();
 
                 // ── Collapsed: truncate each field with … if it overflows ─────────
-                let t0 = truncate_field(title, title_w1);
-                let a0 = truncate_field(artist, artist_w);
-                let b0 = truncate_field(album, album_w);
-                let collapsed = format!("  {}  {}  {}  {}  {:>4}", fav, t0, a0, b0, dur);
+                let mut collapsed = format!("  {}  {}", fav, truncate_field(title, title_w));
+                for (text, w) in &wrap_values {
+                    collapsed.push_str(&format!("  {}", truncate_field(text, *w)));
+                }
+                collapsed.push_str(&format!("  {}", flat_str));
 
                 // ── Expanded: word-wrap each field across as many rows as needed ──
-                let tc = wrap_field(title, title_w1);
-                let ac = wrap_field(artist, artist_w);
-                let bc = wrap_field(album, album_w);
+                let title_wrapped = wrap_field(title, title_w);
+                let field_wrapped: Vec<Vec<String>> = wrap_values
+                    .iter()
+                    .map(|(text, w)| wrap_field(text, *w))
+                    .collect();
 
-                let n = [tc.len(), ac.len(), bc.len()]
-                    .into_iter()
+                let n = std::iter::once(title_wrapped.len())
+                    .chain(field_wrapped.iter().map(|v| v.len()))
                     .max()
                     .unwrap_or(1)
                     .max(1);
 
-                let empty_t = " ".repeat(title_w1);
-                let empty_a = " ".repeat(artist_w);
-                let empty_b = " ".repeat(album_w);
+                let empty_title = " ".repeat(title_w);
 
                 let expanded = (0..n)
                     .map(|row| {
-                        let t = tc
+                        let t = title_wrapped
                             .get(row)
-                            .map(|s| pad_to(s, title_w1))
-                            .unwrap_or_else(|| empty_t.clone());
-                        let a = ac
-                            .get(row)
-                            .map(|s| pad_to(s, artist_w))
-                            .unwrap_or_else(|| empty_a.clone());
-                        let b = bc
-                            .get(row)
-                            .map(|s| pad_to(s, album_w))
-                            .unwrap_or_else(|| empty_b.clone());
+                            .map(|s| pad_to(s, title_w))
+                            .unwrap_or_else(|| empty_title.clone());
                         let h = if row == 0 { fav } else { " " };
-                        if row == 0 {
-                            format!("  {}  {}  {}  {}  {:>4}", h, t, a, b, dur)
-                        } else {
-                            format!("  {}  {}  {}  {}", h, t, a, b)
+                        let mut line = format!("  {}  {}", h, t);
+                        for (i, fw) in field_wrapped.iter().enumerate() {
+                            let w = wrap_values[i].1;
+                            let cell = fw
+                                .get(row)
+                                .map(|s| pad_to(s, w))
+                                .unwrap_or_else(|| " ".repeat(w));
+                            line.push_str(&format!("  {}", cell));
                         }
+                        if row == 0 {
+                            line.push_str(&format!("  {}", flat_str));
+                        } else {
+                            line.push_str(&format!("  {}", blank_flat));
+                        }
+                        line
                     })
                     .collect();
 

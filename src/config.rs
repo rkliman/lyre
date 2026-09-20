@@ -68,6 +68,9 @@ pub struct UiConfig {
     pub theme: Option<String>,
     #[serde(default)]
     pub colors: UiColorsConfig,
+    /// Optional track-list columns to show, by config key (see `TrackColumn::config_key`).
+    #[serde(default = "default_columns")]
+    pub columns: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -89,6 +92,13 @@ fn default_database_name() -> String {
 
 fn default_music_directory() -> String {
     DEFAULT_MUSIC_DIR.to_string()
+}
+
+fn default_columns() -> Vec<String> {
+    ["artist", "album", "duration", "play_count"]
+        .into_iter()
+        .map(String::from)
+        .collect()
 }
 
 fn default_replace() -> Option<HashMap<String, String>> {
@@ -127,6 +137,7 @@ impl Default for UiConfig {
         Self {
             theme: None,
             colors: UiColorsConfig::default(),
+            columns: default_columns(),
         }
     }
 }

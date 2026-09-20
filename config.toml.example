@@ -17,6 +17,11 @@ music_directory = "~/Music"
 #   nord, dracula, gruvbox, gruvbox-dark, rose-pine
 # theme = "catppuccin-mocha"
 
+# Columns to show in the track list, in addition to the always-shown Title.
+# Available: "artist", "album", "duration", "year", "genre", "play_count", "date_added", "last_played"
+# Also editable live from the Settings panel (Columns section).
+columns = ["artist", "album", "duration", "play_count"]
+
 [ui.colors]
 # Color scheme - specify as hex "#RRGGBB" or comma-separated "R, G, B"
 foreground = "#dcd7cd"      # Main text color
